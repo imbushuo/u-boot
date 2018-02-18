@@ -1,0 +1,18 @@
+{
+  "version": "0.2.1",
+  "tasks": [
+    {
+      "taskName": "build-release",
+      "appliesTo": "/",
+      "type": "launch",
+      "contextType": "build",
+      "workingDirectory": "${workspaceRoot}",
+      "command": "powershell.exe",
+      "output": "${workspaceRoot}\\u-boot.img",
+      "args": [
+        "-ExecutionPolicy ByPass",
+        "-File ${workspaceRoot}/scripts/vs-bridge.ps1 -WorkspaceRoot ${workspaceRoot}"
+      ]
+    }
+  ]
+}

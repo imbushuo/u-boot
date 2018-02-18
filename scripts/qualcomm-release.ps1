@@ -14,11 +14,20 @@ Param
     $ConfigurationName = "dragonboard410c_defconfig",
 
     [int]
-    $BuildThreads = 4
+    $BuildThreads = 4,
+
+	[switch]
+	$WslBridged
 )
 
 Write-Host "U-Boot automated PowerShell builder for Qualcomm LK"
 Write-Host "Configuration: $($ConfigurationName), clean build: $($Clean)"
+
+if ($WslBridged)
+{
+	# This is a WSL workaround (because it doesn't load environment when launched externally)
+	$env:PATH = "/opt/skales:/opt/gcc-linaro-6.4.1-2017.11-x86_64_aarch64-elf/bin:$($env:PATH)"
+}
 
 # Set of required tools. Assume we have full Linaro toolchain if we have GCC
 $requiredTools = 
