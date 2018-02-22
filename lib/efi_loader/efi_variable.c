@@ -298,8 +298,13 @@ efi_status_t EFIAPI efi_set_variable(s16 *variable_name,
 
 	val = malloc(2 * data_size + strlen("{ro,run,boot}(blob)") + 1);
 	if (!val)
+	{
+		#ifdef CONFIG_EFI_TRACING_X
+				printf("EFI Tracing: %s:%d reported EFI_OUT_OF_RESOURCES\n", __func__, __LINE__);
+		#endif
 		return EFI_EXIT(EFI_OUT_OF_RESOURCES);
-
+	}
+		
 	s = val;
 
 	/* store attributes: */

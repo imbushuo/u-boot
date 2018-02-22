@@ -697,8 +697,13 @@ static efi_status_t EFIAPI efi_cin_ex_register_key_notify(
 	EFI_ENTRY("%p, %p, %p", this, notify_fn, notify_handle);
 	notifier = calloc(1, sizeof(*notifier));
 	if (!notifier)
+	{
+		#ifdef CONFIG_EFI_TRACING_X
+			printf("EFI Tracing: %s:%d reported EFI_OUT_OF_RESOURCES\n", __func__, __LINE__);
+		#endif
 		return EFI_EXIT(EFI_OUT_OF_RESOURCES);
-
+	}
+		
 	notifier->notify = notify_fn;
 	notifier->key = *key_data;
 

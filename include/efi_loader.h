@@ -173,6 +173,8 @@ int efi_net_register(void);
 int efi_watchdog_register(void);
 /* Called by bootefi to make SMBIOS tables available */
 void efi_smbios_register(void);
+/* Called by bootefi to make ACPI tables available*/
+void efi_acpi_register(void);
 
 struct efi_simple_file_system_protocol *
 efi_fs_from_path(struct efi_device_path *fp);

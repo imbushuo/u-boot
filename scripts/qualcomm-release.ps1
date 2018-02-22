@@ -35,6 +35,7 @@ $requiredTools =
     "autoconf",
     "aarch64-elf-gcc",
     "dtbTool",
+	"iasl",
     "make",
     "mkbootimg"
 )
@@ -132,6 +133,21 @@ if (-not $?)
 
 Set-Location $currLocation
 Write-Host "Configuration: Exit target."
+
+# Build ACPI tables
+Write-Host "Build: Enter ACPI target."
+$currLocation = Get-Location
+Set-Location -Path "$($WorkspaceRoot)/board/qualcomm/dragonboard410c/acpi"
+
+iasl DBG2.asl
+iasl FACS.asl
+iasl GTDT.asl
+iasl MADT.asl
+iasl -vw6312 FACP.asl
+iasl -ve DSDT.asl
+
+Set-Location $currLocation
+Write-Host "Build: Exit ACPI target."
 
 # Build U-Boot
 Write-Host "Build: Enter GCC target, using $($BuildThreads) thread(s)."

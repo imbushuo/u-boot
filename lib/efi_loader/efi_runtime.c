@@ -77,6 +77,10 @@ static void EFIAPI efi_reset_system_boottime(
 	EFI_ENTRY("%d %lx %lx %p", reset_type, reset_status, data_size,
 		  reset_data);
 
+	#ifdef CONFIG_EFI_TRACING
+		printf("efi_reset_system: entered\n");
+	#endif	  
+
 	switch (reset_type) {
 	case EFI_RESET_COLD:
 	case EFI_RESET_WARM:

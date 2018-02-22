@@ -155,6 +155,11 @@ uint64_t efi_add_memory_map(uint64_t start, uint64_t pages, int memory_type,
 	bool carve_again;
 	uint64_t carved_pages = 0;
 
+	#ifdef CONFIG_EFI_TRACING_X
+		printf("EFI Tracing: %s: 0x%" PRIx64 " 0x%" PRIx64 " %d %s\n", __func__,
+			start, pages, memory_type, overlap_only_ram ? "yes" : "no");
+	#endif
+
 	debug("%s: 0x%" PRIx64 " 0x%" PRIx64 " %d %s\n", __func__,
 	      start, pages, memory_type, overlap_only_ram ? "yes" : "no");
 
@@ -197,6 +202,7 @@ uint64_t efi_add_memory_map(uint64_t start, uint64_t pages, int memory_type,
 				 * The user requested to only have RAM overlaps,
 				 * but we hit a non-RAM region. Error out.
 				 */
+				printf("ERROR: Non-RAM region is hit\n");
 				return 0;
 			case EFI_CARVE_NO_OVERLAP:
 				/* Just ignore this list entry */
@@ -227,11 +233,12 @@ uint64_t efi_add_memory_map(uint64_t start, uint64_t pages, int memory_type,
 		 * The payload wanted to have RAM overlaps, but we overlapped
 		 * with an unallocated region. Error out.
 		 */
+		// printf("ERROR: Overlapped\n");
 		return 0;
 	}
 
 	/* Add our new map */
-        list_add_tail(&newlist->link, &efi_mem);
+    list_add_tail(&newlist->link, &efi_mem);
 
 	/* And make sure memory is listed in descending order */
 	efi_mem_sort();
@@ -282,6 +289,11 @@ efi_status_t efi_allocate_pages(int type, int memory_type,
 	efi_status_t r = EFI_SUCCESS;
 	uint64_t addr;
 
+	#ifdef CONFIG_EFI_TRACING_X
+		printf("EFI Tracing: %s:%d, type = %d, memory_type = %d, pages = %llu @ 0x%" PRIx64 "\n", 
+			__func__, __LINE__, type, memory_type, pages, *memory);
+	#endif
+
 	switch (type) {
 	case 0:
 		/* Any page */
@@ -319,6 +331,11 @@ efi_status_t efi_allocate_pages(int type, int memory_type,
 		} else {
 			/* Map would overlap, bail out */
 			r = EFI_OUT_OF_RESOURCES;
+			#ifdef CONFIG_EFI_TRACING_X
+				printf("EFI Tracing: %s:%d reported EFI_OUT_OF_RESOURCES\n", __func__, __LINE__);
+				printf("EFI Tracing: Detailed information:\n");
+				printf("Address = 0x%" PRIx64 ", Pages = %llu, Type = %d\n", addr, pages, memory_type);
+			#endif
 		}
 	}
 
@@ -448,6 +465,11 @@ __weak void efi_add_known_memory(void)
 		u64 start = (ram_start + EFI_PAGE_MASK) & ~EFI_PAGE_MASK;
 		u64 pages = (ram_size + EFI_PAGE_MASK) >> EFI_PAGE_SHIFT;
 
+		#if CONFIG_EFI_TRACING_X
+			printf("EFI Tracing: Known Memory start = 0x%" PRIx64 ", 0x%" PRIx64 " pages\n", 
+				 start, pages);
+		#endif
+
 		efi_add_memory_map(start, pages, EFI_CONVENTIONAL_MEMORY,
 				   false);
 	}
@@ -464,6 +486,12 @@ int efi_memory_init(void)
 	/* Add U-Boot */
 	uboot_start = (gd->start_addr_sp - uboot_stack_size) & ~EFI_PAGE_MASK;
 	uboot_pages = (gd->ram_top - uboot_start) >> EFI_PAGE_SHIFT;
+
+	#if CONFIG_EFI_TRACING_X
+		printf("EFI Tracing: U-Boot start = 0x%" PRIx64 ", 0x%" PRIx64 " pages\n", 
+			uboot_start, uboot_pages);
+	#endif
+
 	efi_add_memory_map(uboot_start, uboot_pages, EFI_LOADER_DATA, false);
 
 	/* Add Runtime Services */
@@ -471,6 +499,12 @@ int efi_memory_init(void)
 	runtime_end = (ulong)&__efi_runtime_stop;
 	runtime_end = (runtime_end + EFI_PAGE_MASK) & ~EFI_PAGE_MASK;
 	runtime_pages = (runtime_end - runtime_start) >> EFI_PAGE_SHIFT;
+
+	#if CONFIG_EFI_TRACING_X
+		printf("EFI Tracing: Runtime start = 0x%" PRIx64 ", 0x%" PRIx64 " pages\n", 
+			runtime_start, runtime_pages);
+	#endif
+
 	efi_add_memory_map(runtime_start, runtime_pages,
 			   EFI_RUNTIME_SERVICES_CODE, false);
 

@@ -41,6 +41,9 @@ static void efi_init_obj_list(void)
 #ifdef CONFIG_NET
 	efi_net_register();
 #endif
+#ifdef CONFIG_ARM_ACPI
+	// efi_acpi_register();
+#endif
 #ifdef CONFIG_GENERATE_SMBIOS_TABLE
 	efi_smbios_register();
 #endif
@@ -189,6 +192,8 @@ static unsigned long do_bootefi_exec(void *efi, void *fdt,
 	} else {
 		printf("WARNING: Invalid device tree, expect boot to fail\n");
 		efi_install_configuration_table(&fdt_guid, NULL);
+		
+		// TODO: Install ACPI tables
 	}
 
 	/* Load the EFI payload */

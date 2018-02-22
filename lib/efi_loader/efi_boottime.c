@@ -394,8 +394,13 @@ efi_status_t efi_create_event(uint32_t type, UINTN notify_tpl,
 
 	evt = calloc(1, sizeof(*evt));
 	if (!evt)
+	{
+		#ifdef CONFIG_EFI_TRACING_X
+			printf("EFI Tracing: %s:%d reported EFI_OUT_OF_RESOURCES\n", __func__, __LINE__);
+		#endif
 		return EFI_OUT_OF_RESOURCES;
-
+	}
+		
 	evt->type = type;
 	evt->notify_tpl = notify_tpl;
 	evt->notify_function = notify_function;
@@ -746,6 +751,9 @@ static efi_status_t EFIAPI efi_install_protocol_interface(void **handle,
 			goto out;
 		}
 		r = EFI_OUT_OF_RESOURCES;
+		#ifdef CONFIG_EFI_TRACING
+			printf("EFI Tracing: %s:%d reported EFI_OUT_OF_RESOURCES\n", __func__, __LINE__);
+		#endif
 		goto out;
 	}
 	r = EFI_INVALID_PARAMETER;
@@ -895,6 +903,9 @@ static efi_status_t EFIAPI efi_register_protocol_notify(
 						void **registration)
 {
 	EFI_ENTRY("%pUl, %p, %p", protocol, event, registration);
+	#ifdef CONFIG_EFI_TRACING
+		printf("EFI Tracing: %s:%d reported EFI_OUT_OF_RESOURCES\n", __func__, __LINE__);
+	#endif
 	return EFI_EXIT(EFI_OUT_OF_RESOURCES);
 }
 
@@ -1080,7 +1091,12 @@ efi_status_t efi_install_configuration_table(const efi_guid_t *guid, void *table
 
 	/* No override, check for overflow */
 	if (i >= ARRAY_SIZE(efi_conf_table))
+	{
+		#ifdef CONFIG_EFI_TRACING
+			printf("EFI Tracing: %s:%d reported EFI_OUT_OF_RESOURCES\n", __func__, __LINE__);
+		#endif
 		return EFI_OUT_OF_RESOURCES;
+	}
 
 	/* Add a new entry */
 	memcpy(&efi_conf_table[i].guid, guid, sizeof(*guid));
