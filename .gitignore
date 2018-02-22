@@ -87,3 +87,8 @@ GTAGS
 \#*#
 rd
 dt.img
+board/qualcomm/dragonboard410c/acpi/MADT.aml
+board/qualcomm/dragonboard410c/acpi/DSDT.aml
+board/qualcomm/dragonboard410c/acpi/FACP.aml
+board/qualcomm/dragonboard410c/acpi/FACS.aml
+board/qualcomm/dragonboard410c/acpi/GTDT.aml
