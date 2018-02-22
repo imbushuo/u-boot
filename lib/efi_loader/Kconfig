@@ -16,3 +16,20 @@ config EFI_LOADER_BOUNCE_BUFFER
 	  Some hardware does not support DMA to full 64bit addresses. For this
 	  hardware we can create a bounce buffer so that payloads don't have to
 	  worry about platform details.
+
+config EFI_TRACING
+	bool "Enable EFI serial output tracing in U-Boot"
+	depends on (ARM || X86) && EFI_LOADER
+	default n
+	help
+		Enable EFI serial output tracing for debugging certain conditions.
+
+config ARM_ACPI
+	bool "Enable Hardware-reduced ACPI support for ARM systems in U-Boot"
+	depends on ARM && EFI_LOADER
+	default n
+	help
+		Enable hardware-reduced ACPI support for ARM/ARM64-based EFI systems.
+		Currently all ACPI tables are emitted and embedded into binary as part
+		of the build process. ACPI is a prerequisite for certain operating 
+		system like Microsoft Windows.
