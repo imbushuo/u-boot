@@ -94,6 +94,42 @@ static void EFIAPI efi_reset_system_boottime(
 	while (1) { }
 }
 
+static efi_status_t EFIAPI efi_set_time_boottime(
+			struct efi_time *time
+)
+{
+#if defined(CONFIG_CMD_DATE) && defined(CONFIG_DM_RTC)
+	struct rtc_time tm;
+	int r;
+	struct udevice *dev;
+
+	EFI_ENTRY("%p", time);
+
+	if (time == NULL)
+		return EFI_EXIT(EFI_INVALID_PARAMETER);
+
+	r = uclass_get_device(UCLASS_RTC, 0, &dev);
+	if (r)
+		return EFI_EXIT(EFI_DEVICE_ERROR);
+
+	tm.tm_year = time->year;
+	tm.tm_mon = time->month;
+	tm.tm_mday = time->day;
+	tm.tm_hour = time->hour;
+	tm.tm_min = time->minute;
+	tm.tm_isdst = time->daylight;
+
+	r = dm_rtc_set(dev, &tm);
+	if (r)
+		return EFI_EXIT(EFI_DEVICE_ERROR);
+
+	return EFI_EXIT(EFI_SUCCESS);
+
+#else
+	return EFI_DEVICE_ERROR;
+#endif
+}
+
 static efi_status_t EFIAPI efi_get_time_boottime(
 			struct efi_time *time,
 			struct efi_time_cap *capabilities)
@@ -154,6 +190,17 @@ void __weak efi_get_time_init(void)
 {
 }
 
+efi_status_t __weak __efi_runtime EFIAPI efi_set_time(
+			struct efi_time *time)
+{
+	/* Nothing we can do */
+	return EFI_DEVICE_ERROR;
+}
+
+void __weak efi_set_time_init(void)
+{
+}
+
 struct efi_runtime_detach_list_struct {
 	void *ptr;
 	void *patchto;
@@ -172,6 +219,10 @@ static const struct efi_runtime_detach_list_struct efi_runtime_detach_list[] = {
 		/* RTC accessors are gone */
 		.ptr = &efi_runtime_services.get_time,
 		.patchto = &efi_get_time,
+	}, {
+		/* RTC accessors are gone */
+		.ptr = &efi_runtime_services.set_time,
+		.patchto = &efi_set_time,
 	}, {
 		/* Clean up system table */
 		.ptr = &systab.con_in,
@@ -392,7 +443,7 @@ struct efi_runtime_services __efi_runtime_data efi_runtime_services = {
 		.headersize = sizeof(struct efi_table_hdr),
 	},
 	.get_time = &efi_get_time_boottime,
-	.set_time = (void *)&efi_device_error,
+	.set_time = &efi_set_time_boottime,
 	.get_wakeup_time = (void *)&efi_unimplemented,
 	.set_wakeup_time = (void *)&efi_unimplemented,
 	.set_virtual_address_map = &efi_set_virtual_address_map,
