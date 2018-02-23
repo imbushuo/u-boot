@@ -31,7 +31,7 @@ long long   pm8916_rtc_offset;
 /* Enable RTC Start in Control register */
 static void pm8916_rtc_init(const struct udevice *dev)
 {
-    printf("PM8916 RTC: pm8916_rtc_init\n");
+    debug("PM8916 RTC: pm8916_rtc_init\n");
 
     /* Check if the RTC is on, else turn it on */
     unsigned int ctrl_reg;
@@ -40,13 +40,13 @@ static void pm8916_rtc_init(const struct udevice *dev)
     ctrl_reg = pmic_reg_read(dev->parent, PM8916_RTC_CONTROL_ADDR);
 
     if (!(ctrl_reg & PM8xxx_RTC_ENABLE)) {
-        printf("PM8916 RTC: Enable RTC\n");
+        debug("PM8916 RTC: Enable RTC\n");
         ctrl_reg |= PM8xxx_RTC_ENABLE;
         rc = pmic_reg_write(dev->parent, PM8916_RTC_CONTROL_ADDR, ctrl_reg);
-        if (rc) printf("PM8916 RTC: Something happened\n");
+        if (rc) debug("PM8916 RTC: Something happened\n");
     }
 
-    printf("PM8916 RTC: Initialized\n");
+    debug("PM8916 RTC: Initialized\n");
     pm8916_rtc_initiated = 1;
 
     pm8916_rtc_offset_is_valid = false;
@@ -55,7 +55,7 @@ static void pm8916_rtc_init(const struct udevice *dev)
 
 static int pm8916_get_epoch(const struct udevice *dev)
 {
-    printf("PM8916 RTC: pm8916_get_epoch\n");
+    debug("PM8916 RTC: pm8916_get_epoch\n");
 
     unsigned long secs;
     u8 value[NUM_8_BIT_RTC_REGS];
@@ -83,7 +83,7 @@ static int pm8916_get_epoch(const struct udevice *dev)
  */
 static int pm8916_rtc_reset(struct udevice *dev)
 {
-    printf("PM8916 RTC: pm8916_rtc_reset\n");
+    debug("PM8916 RTC: pm8916_rtc_reset\n");
 
     // No way can do in PM8916
     // Simply set new offset for further references
@@ -100,10 +100,10 @@ static int pm8916_rtc_reset(struct udevice *dev)
  */
 static int pm8916_rtc_get(struct udevice *dev, struct rtc_time *tmp)
 {
-    printf("PM8916 RTC: pm8916_rtc_get\n");
+    debug("PM8916 RTC: pm8916_rtc_get\n");
 
     if (tmp == NULL) {
-        printf("PM8916 RTC: Access violation\n");
+        debug("PM8916 RTC: Access violation\n");
         return -1;
     }
 
@@ -114,13 +114,13 @@ static int pm8916_rtc_get(struct udevice *dev, struct rtc_time *tmp)
     }
 
     if (secs < 0) {
-        printf("PM8916 RTC: secs < 0\n");
+        debug("PM8916 RTC: secs < 0\n");
         return -1;
     }
 
     // Report time
     rtc_to_tm(secs, tmp);
-	printf("PM8916 RTC Get DATE: %4d-%02d-%02d (wday=%d)  TIME: %2d:%02d:%02d\n",
+	debug("PM8916 RTC Get DATE: %4d-%02d-%02d (wday=%d)  TIME: %2d:%02d:%02d\n",
 		tmp->tm_year, tmp->tm_mon, tmp->tm_mday, tmp->tm_wday,
 		tmp->tm_hour, tmp->tm_min, tmp->tm_sec);
 
@@ -132,7 +132,7 @@ static int pm8916_rtc_get(struct udevice *dev, struct rtc_time *tmp)
 */
 static int pm8916_rtc_set(struct udevice *dev, const struct rtc_time *tmp)
 {
-    printf("PM8916 RTC: pm8916_rtc_set\n");
+    debug("PM8916 RTC: pm8916_rtc_set\n");
 
     unsigned long tim, curr;
 
@@ -141,7 +141,7 @@ static int pm8916_rtc_set(struct udevice *dev, const struct rtc_time *tmp)
     }
 
     if (tmp == NULL) {
-        printf("PM8916 RTC: Access violation\n");
+        debug("PM8916 RTC: Access violation\n");
         return -1;
     }
 
@@ -159,7 +159,7 @@ static int pm8916_rtc_set(struct udevice *dev, const struct rtc_time *tmp)
 static int pm8916_rtc_probe(struct udevice *dev) 
 {
     /* Assume everything is good */
-    printf("PM8916 RTC: pm8916_rtc_probe\n");
+    debug("PM8916 RTC: pm8916_rtc_probe\n");
     return 0;
 }
 
