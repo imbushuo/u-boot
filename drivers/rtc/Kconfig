@@ -30,4 +30,10 @@ config RTC_DS1307
 	  Support for Dallas Semiconductor (now Maxim) DS1307 and DS1338/9 and
 	  compatible Real Time Clock devices.
 
+config RTC_PM8916
+	bool "Enable PM8916 driver"
+	depends on DM_RTC
+	help
+	 Support for Qualcomm PM8916 and compatible Real Time Clock devices.
+
 endmenu

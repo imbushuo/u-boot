@@ -104,6 +104,12 @@
 				#address-cells = <0x1>;
 				#size-cells = <0x1>;
 
+				rtc@6000 {
+					compatible = "qcom,pm8941-rtc";
+					reg = <0x6000 0x149>;
+					reg-names = "rtc", "alarm";
+				};
+
 				pm8916_pon: pm8916_pon@800 {
 					compatible = "qcom,pm8916-pwrkey";
 					reg = <0x800 0x96>;
