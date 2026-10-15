@@ -18,16 +18,12 @@ static int psci_sysreset_request(struct udevice *dev, enum sysreset_t type)
 	switch (type) {
 	case SYSRESET_WARM:
 	case SYSRESET_COLD:
-		psci_sys_reset(type);
-		break;
+		return psci_sys_reset(type);
 	case SYSRESET_POWER_OFF:
-		psci_sys_poweroff();
-		break;
+		return psci_sys_poweroff();
 	default:
 		return -EPROTONOSUPPORT;
 	}
-
-	return -EINPROGRESS;
 }
 
 static struct sysreset_ops psci_sysreset_ops = {

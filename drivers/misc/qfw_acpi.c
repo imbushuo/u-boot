@@ -9,6 +9,7 @@
 #include <acpi/acpi_table.h>
 #include <bloblist.h>
 #include <errno.h>
+#include <limits.h>
 #include <malloc.h>
 #include <mapmem.h>
 #include <qfw.h>
@@ -31,7 +32,8 @@ DECLARE_GLOBAL_DATA_PTR;
  * @return: 0 on success, or negative value on failure
  */
 static int bios_linker_allocate(struct acpi_ctx *ctx, struct udevice *dev,
-				struct bios_linker_entry *entry, ulong *addr)
+				struct bios_linker_entry *entry, ulong *addr,
+				ulong limit)
 {
 	uint32_t size, align;
 	struct fw_file *file;
@@ -40,7 +42,7 @@ static int bios_linker_allocate(struct acpi_ctx *ctx, struct udevice *dev,
 
 	align = le32_to_cpu(entry->alloc.align);
 	/* align must be power of 2 */
-	if (align & (align - 1)) {
+	if (!align || (align & (align - 1))) {
 		printf("error: wrong alignment %u\n", align);
 		return -EINVAL;
 	}
@@ -77,6 +79,13 @@ static int bios_linker_allocate(struct acpi_ctx *ctx, struct udevice *dev,
 	} else {
 		printf("error: invalid allocation zone\n");
 		return -EINVAL;
+	}
+
+	if ((IS_ENABLED(CONFIG_BLOBLIST_TABLES) ||
+	     entry->alloc.zone == BIOS_LINKER_LOADER_ALLOC_ZONE_FSEG) &&
+	    (aligned_addr > limit || size > limit - aligned_addr)) {
+		printf("error: ACPI tables exceed reserved space\n");
+		return -ENOSPC;
 	}
 
 	debug("bios_linker_allocate: allocate file %s, size %u, zone %d, align %u, addr 0x%lx\n",
@@ -161,7 +170,7 @@ static int bios_linker_add_checksum(struct udevice *dev,
 }
 
 /* This function loads and patches ACPI tables provided by QEMU */
-ulong write_acpi_tables(ulong addr)
+static ulong write_acpi_tables_limit(ulong addr, ulong limit)
 {
 	int i, ret;
 	struct fw_file *file;
@@ -174,7 +183,7 @@ ulong write_acpi_tables(ulong addr)
 	ctx = malloc(sizeof(*ctx));
 	if (!ctx) {
 		printf("error: out of memory for acpi ctx\n");
-		return addr;
+		return 0;
 	}
 
 	acpi_setup_ctx(ctx, addr);
@@ -182,32 +191,32 @@ ulong write_acpi_tables(ulong addr)
 	ret = qfw_get_dev(&dev);
 	if (ret) {
 		printf("error: no qfw\n");
-		return addr;
+		goto err_ctx;
 	}
 
 	/* make sure fw_list is loaded */
 	ret = qfw_read_firmware_list(dev);
 	if (ret) {
 		printf("error: can't read firmware file list\n");
-		return addr;
+		goto err_ctx;
 	}
 
 	file = qfw_find_file(dev, "etc/table-loader");
 	if (!file) {
 		printf("error: can't find etc/table-loader\n");
-		return addr;
+		goto err_ctx;
 	}
 
 	size = be32_to_cpu(file->cfg.size);
 	if ((size % sizeof(*entry)) != 0) {
 		printf("error: table-loader maybe corrupted\n");
-		return addr;
+		goto err_ctx;
 	}
 
 	table_loader = malloc(size);
 	if (!table_loader) {
 		printf("error: no memory for table-loader\n");
-		return addr;
+		goto err_ctx;
 	}
 
 	/* QFW always puts tables at high addresses */
@@ -222,7 +231,7 @@ ulong write_acpi_tables(ulong addr)
 		switch (le32_to_cpu(entry->command)) {
 		case BIOS_LINKER_LOADER_COMMAND_ALLOCATE:
 			log_content("   - %s\n", entry->alloc.file);
-			ret = bios_linker_allocate(ctx, dev, entry, &addr);
+			ret = bios_linker_allocate(ctx, dev, entry, &addr, limit);
 			if (ret)
 				goto out;
 			break;
@@ -246,21 +255,33 @@ ulong write_acpi_tables(ulong addr)
 out:
 	if (ret) {
 		struct fw_cfg_file_iter iter;
-		for (file = qfw_file_iter_init(dev, &iter);
-		     !qfw_file_iter_end(&iter);
-		     file = qfw_file_iter_next(&iter)) {
-			if (file->addr) {
+
+		for (i = 0; i < size / sizeof(*entry); i++) {
+			entry = table_loader + i;
+			if (le32_to_cpu(entry->command) !=
+			    BIOS_LINKER_LOADER_COMMAND_ALLOCATE ||
+			    IS_ENABLED(CONFIG_BLOBLIST_TABLES) ||
+			    entry->alloc.zone != BIOS_LINKER_LOADER_ALLOC_ZONE_HIGH)
+				continue;
+			file = qfw_find_file(dev, entry->alloc.file);
+			if (file && file->addr) {
 				free((void *)file->addr);
 				file->addr = 0;
 			}
 		}
+
+		for (file = qfw_file_iter_init(dev, &iter);
+		     !qfw_file_iter_end(&iter);
+		     file = qfw_file_iter_next(&iter))
+			file->addr = 0;
 	}
 
 	free(table_loader);
 
-	if (!ctx->rsdp) {
-		printf("error: no RSDP found\n");
-		return addr;
+	if (ret || !ctx->rsdp) {
+		if (!ret)
+			printf("error: no RSDP found\n");
+		goto err_ctx;
 	}
 	struct acpi_rsdp *rsdp = ctx->rsdp;
 
@@ -271,6 +292,17 @@ out:
 	gd_set_acpi_start(acpi_get_rsdp_addr());
 
 	return addr;
+
+err_ctx:
+	gd->acpi_ctx = NULL;
+	gd_set_acpi_start(0);
+	free(ctx);
+	return 0;
+}
+
+ulong write_acpi_tables(ulong addr)
+{
+	return write_acpi_tables_limit(addr, ~0UL);
 }
 
 ulong acpi_get_rsdp_addr(void)
@@ -313,19 +345,86 @@ void acpi_write_rsdp(struct acpi_rsdp *rsdp, struct acpi_rsdt *rsdt,
 }
 
 #ifndef CONFIG_X86
+static int qfw_acpi_blob_size(int *blob_size)
+{
+	struct bios_linker_entry *entries, *entry;
+	struct fw_file *file;
+	struct udevice *dev;
+	u64 total = 0;
+	u32 size, align;
+	int ret, i;
+
+	ret = qfw_get_dev(&dev);
+	if (ret)
+		return ret;
+	ret = qfw_read_firmware_list(dev);
+	if (ret)
+		return ret;
+
+	file = qfw_find_file(dev, "etc/table-loader");
+	if (!file)
+		return -ENOENT;
+	size = be32_to_cpu(file->cfg.size);
+	if (!size || size % sizeof(*entry))
+		return -EINVAL;
+
+	entries = malloc(size);
+	if (!entries)
+		return -ENOMEM;
+	qfw_read_entry(dev, be16_to_cpu(file->cfg.select), size, entries);
+
+	for (i = 0; i < size / sizeof(*entry); i++) {
+		entry = &entries[i];
+		if (le32_to_cpu(entry->command) !=
+		    BIOS_LINKER_LOADER_COMMAND_ALLOCATE)
+			continue;
+		if (!IS_ENABLED(CONFIG_BLOBLIST_TABLES) &&
+		    entry->alloc.zone == BIOS_LINKER_LOADER_ALLOC_ZONE_HIGH)
+			continue;
+
+		align = le32_to_cpu(entry->alloc.align);
+		file = qfw_find_file(dev, entry->alloc.file);
+		if (!align || (align & (align - 1)) || !file) {
+			ret = -EINVAL;
+			break;
+		}
+		total += align - 1 + (u64)be32_to_cpu(file->cfg.size);
+		if (total > INT_MAX) {
+			ret = -EOVERFLOW;
+			break;
+		}
+	}
+	free(entries);
+	if (ret)
+		return ret;
+
+	/* Match the bloblist's 4K allocation alignment for safe iteration. */
+	total = ALIGN(max_t(u64, total, SZ_64K), SZ_4K);
+	if (total > INT_MAX)
+		return -EOVERFLOW;
+	*blob_size = total;
+
+	return 0;
+}
+
 static int evt_write_acpi_tables(void)
 {
 	ulong addr, end;
+	int size, ret;
 	void *ptr;
 
-	/* Reserve 64K for ACPI tables, aligned to a 4K boundary */
-	ptr = bloblist_add(BLOBLISTT_ACPI_TABLES, SZ_64K, 12);
+	ret = qfw_acpi_blob_size(&size);
+	if (ret)
+		return log_msg_ret("QEMU ACPI size", ret);
+
+	ptr = bloblist_add(BLOBLISTT_ACPI_TABLES, size, 12);
 	if (!ptr)
 		return -ENOBUFS;
 	addr = map_to_sysmem(ptr);
 
-	/* Generate ACPI tables */
-	end = write_acpi_tables(addr);
+	end = write_acpi_tables_limit(addr, addr + size);
+	if (!end)
+		return -EIO;
 	gd->arch.table_start = addr;
 	gd->arch.table_end = end;
 

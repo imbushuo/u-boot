@@ -232,22 +232,35 @@ static int psci_probe(struct udevice *dev)
 	return bind_smccc_features(dev, psci_method);
 }
 
+extern U_BOOT_DRIVER(psci);
+
 /**
- * void do_psci_probe() - probe PSCI firmware driver
+ * do_psci_probe() - probe PSCI firmware driver
  *
- * Ensure that psci_method is initialized.
+ * Ensure that psci_method is initialized regardless of the device node's
+ * name.
+ *
+ * Return: 0 on success, negative error code otherwise.
  */
-static void __maybe_unused do_psci_probe(void)
+static int __maybe_unused do_psci_probe(void)
 {
 	struct udevice *dev;
 
-	uclass_get_device_by_name(UCLASS_FIRMWARE, DRIVER_NAME, &dev);
+	return uclass_get_device_by_driver(UCLASS_FIRMWARE,
+					   DM_DRIVER_GET(psci), &dev);
 }
 
 #if IS_ENABLED(CONFIG_EFI_LOADER) && IS_ENABLED(CONFIG_PSCI_RESET)
 efi_status_t efi_reset_system_init(void)
 {
-	do_psci_probe();
+	int ret;
+
+	ret = do_psci_probe();
+	if (ret) {
+		log_err("PSCI firmware probe failed: %d\n", ret);
+		return EFI_DEVICE_ERROR;
+	}
+
 	return EFI_SUCCESS;
 }
 
@@ -271,16 +284,25 @@ void __efi_runtime EFIAPI efi_reset_system(enum efi_reset_type reset_type,
 #ifdef CONFIG_PSCI_RESET
 void reset_misc(void)
 {
-	do_psci_probe();
+	int ret = do_psci_probe();
+
+	if (ret) {
+		log_err("PSCI firmware probe failed: %d\n", ret);
+		return;
+	}
+
 	invoke_psci_fn(PSCI_0_2_FN_SYSTEM_RESET, 0, 0, 0);
 }
 #endif /* CONFIG_PSCI_RESET */
 
-void psci_sys_reset(u32 type)
+int psci_sys_reset(u32 type)
 {
 	bool reset2_supported;
+	int ret;
 
-	do_psci_probe();
+	ret = do_psci_probe();
+	if (ret)
+		return ret;
 
 	reset2_supported = psci_is_system_reset2_supported();
 
@@ -294,19 +316,29 @@ void psci_sys_reset(u32 type)
 	} else {
 		invoke_psci_fn(PSCI_0_2_FN_SYSTEM_RESET, 0, 0, 0);
 	}
+
+	return -EIO;
 }
 
-void psci_sys_poweroff(void)
+int psci_sys_poweroff(void)
 {
-	do_psci_probe();
+	int ret = do_psci_probe();
+
+	if (ret)
+		return ret;
 
 	invoke_psci_fn(PSCI_0_2_FN_SYSTEM_OFF, 0, 0, 0);
+
+	return -EIO;
 }
 
 #if IS_ENABLED(CONFIG_CMD_POWEROFF) && !IS_ENABLED(CONFIG_SYSRESET_CMD_POWEROFF)
 int do_poweroff(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 {
-	do_psci_probe();
+	int ret = do_psci_probe();
+
+	if (ret)
+		return log_msg_ret("PSCI firmware", ret);
 
 	puts("poweroff ...\n");
 	udelay(50000); /* wait 50 ms */

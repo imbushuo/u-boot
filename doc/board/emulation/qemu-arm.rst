@@ -119,6 +119,21 @@ Run QEMU with ``-machine virt,acpi=on`` so it provides the tables through
 fw_cfg. In U-Boot, ``acpi list -c`` shows the tables and their checksums.
 After ``bootefi hello``, ``efidebug tables`` lists the ACPI table instead of
 a device tree. QEMU still provides a device tree for U-Boot itself.
+The fragment also reserves enough relocated bloblist space for QEMU's ACPI
+tables so they do not overwrite U-Boot's control device tree.
+
+QEMU describes the PSCI conduit in the control device tree: ``virt`` uses
+``hvc``, while ``virt,virtualization=on`` uses ``smc``. U-Boot reads this
+property for its ``reset`` and ``poweroff`` commands and for EFI's
+``ResetSystem`` runtime service. Check the property with
+``fdt addr ${fdtcontroladdr}`` followed by ``fdt print /psci``. To exercise
+reset or shutdown after ExitBootServices, run::
+
+    env set efi_selftest reset system runtime
+    bootefi selftest
+
+Select ``shutdown system runtime`` instead to check EFI shutdown. These
+commands reset or shut down QEMU, so save any work inside the guest first.
 
 To use QEMU's fw_cfg ramfb display on AArch64, enable its configuration
 fragment before building::
