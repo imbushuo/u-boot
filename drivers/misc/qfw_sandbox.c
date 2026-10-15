@@ -16,6 +16,7 @@
 
 struct qfw_sandbox_plat {
 	u8 file_dir_offset;
+	u8 written_data[8];
 };
 
 static void qfw_sandbox_read_entry_io(struct udevice *dev, u16 entry, u32 size,
@@ -44,7 +45,7 @@ static void qfw_sandbox_read_entry_io(struct udevice *dev, u16 entry, u32 size,
 	}
 }
 
-static void qfw_sandbox_read_entry_dma(struct udevice *dev, struct qfw_dma *dma)
+static int qfw_sandbox_dma_transfer(struct udevice *dev, struct qfw_dma *dma)
 {
 	u16 entry;
 	u32 control = be32_to_cpu(dma->control);
@@ -55,8 +56,20 @@ static void qfw_sandbox_read_entry_dma(struct udevice *dev, struct qfw_dma *dma)
 
 	debug("%s\n", __func__);
 
+	if (control & FW_CFG_DMA_WRITE) {
+		if (!(control & FW_CFG_DMA_SELECT) ||
+		    (control >> 16) != FW_CFG_FILE_FIRST ||
+		    length != sizeof(plat->written_data)) {
+			dma->control = cpu_to_be32(FW_CFG_DMA_ERROR);
+			return -EIO;
+		}
+
+		memcpy(plat->written_data, address, length);
+		dma->control = 0;
+		return 0;
+	}
 	if (!(control & FW_CFG_DMA_READ))
-		return;
+		return -EIO;
 
 	if (control & FW_CFG_DMA_SELECT) {
 		/* Start new read. */
@@ -73,6 +86,10 @@ static void qfw_sandbox_read_entry_dma(struct udevice *dev, struct qfw_dma *dma)
 				*((u32 *)address) = cpu_to_be32(2);
 				plat->file_dir_offset = 1;
 			}
+			break;
+		case FW_CFG_FILE_FIRST:
+			if (length == sizeof(plat->written_data))
+				memcpy(address, plat->written_data, length);
 			break;
 		default:
 			debug("%s got unsupported entry 0x%x\n", __func__,
@@ -102,6 +119,8 @@ static void qfw_sandbox_read_entry_dma(struct udevice *dev, struct qfw_dma *dma)
 	 * replicate the behaviour in case someone relies on it later.
 	 */
 	dma->control = 0;
+
+	return 0;
 }
 
 static int qfw_sandbox_probe(struct udevice *dev)
@@ -111,7 +130,7 @@ static int qfw_sandbox_probe(struct udevice *dev)
 
 static struct dm_qfw_ops qfw_sandbox_ops = {
 	.read_entry_io = qfw_sandbox_read_entry_io,
-	.read_entry_dma = qfw_sandbox_read_entry_dma,
+	.dma_transfer = qfw_sandbox_dma_transfer,
 };
 
 U_BOOT_DRIVER(qfw_sandbox) = {

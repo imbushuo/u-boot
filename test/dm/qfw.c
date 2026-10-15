@@ -37,3 +37,27 @@ static int dm_test_qfw_firmware_list(struct unit_test_state *uts)
 	return 0;
 }
 DM_TEST(dm_test_qfw_firmware_list, UTF_SCAN_PDATA);
+
+static int dm_test_qfw_dma_write(struct unit_test_state *uts)
+{
+	const u8 data[] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+	struct qfw_dev *qdev;
+	struct udevice *dev;
+	u8 result[sizeof(data)];
+
+	ut_assertok(uclass_first_device_err(UCLASS_QFW, &dev));
+	ut_assertok(qfw_write_entry(dev, FW_CFG_FILE_FIRST, sizeof(data), data));
+	qfw_read_entry(dev, FW_CFG_FILE_FIRST, sizeof(result), result);
+	ut_asserteq_mem(data, result, sizeof(data));
+
+	ut_asserteq(-EIO, qfw_write_entry(dev, FW_CFG_NB_CPUS,
+					  sizeof(data), data));
+
+	qdev = dev_get_uclass_priv(dev);
+	qdev->dma_present = false;
+	ut_asserteq(-ENOTSUPP, qfw_write_entry(dev, FW_CFG_FILE_FIRST,
+					       sizeof(data), data));
+
+	return 0;
+}
+DM_TEST(dm_test_qfw_dma_write, UTF_SCAN_PDATA);

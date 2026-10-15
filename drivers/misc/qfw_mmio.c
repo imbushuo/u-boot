@@ -13,6 +13,8 @@
 #include <dm.h>
 #include <dm/device.h>
 #include <qfw.h>
+#include <cpu_func.h>
+#include <asm/cache.h>
 
 struct qfw_mmio {
 	/*
@@ -71,15 +73,20 @@ static void qfw_mmio_read_entry_io(struct udevice *dev, u16 entry, u32 size,
 	}
 }
 
-/* Read configuration item using fw_cfg DMA interface */
-static void qfw_mmio_read_entry_dma(struct udevice *dev, struct qfw_dma *dma)
+/* Transfer a configuration item using the fw_cfg DMA interface */
+static int qfw_mmio_dma_transfer(struct udevice *dev, struct qfw_dma *dma)
 {
 	struct qfw_mmio_plat *plat = dev_get_plat(dev);
 
 	/* the DMA address register is big-endian */
 	plat->mmio->dma = cpu_to_be64((uintptr_t)dma);
 
-	while (be32_to_cpu(dma->control) & ~FW_CFG_DMA_ERROR);
+	do {
+		invalidate_dcache_range((ulong)dma,
+				       (ulong)dma + ARCH_DMA_MINALIGN);
+	} while (be32_to_cpu(dma->control) & ~FW_CFG_DMA_ERROR);
+
+	return be32_to_cpu(dma->control) & FW_CFG_DMA_ERROR ? -EIO : 0;
 }
 
 static int qfw_mmio_of_to_plat(struct udevice *dev)
@@ -100,7 +107,7 @@ static int qfw_mmio_probe(struct udevice *dev)
 
 static struct dm_qfw_ops qfw_mmio_ops = {
 	.read_entry_io = qfw_mmio_read_entry_io,
-	.read_entry_dma = qfw_mmio_read_entry_dma,
+	.dma_transfer = qfw_mmio_dma_transfer,
 };
 
 static const struct udevice_id qfw_mmio_ids[] = {

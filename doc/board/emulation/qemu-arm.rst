@@ -120,6 +120,30 @@ fw_cfg. In U-Boot, ``acpi list -c`` shows the tables and their checksums.
 After ``bootefi hello``, ``efidebug tables`` lists the ACPI table instead of
 a device tree. QEMU still provides a device tree for U-Boot itself.
 
+To use QEMU's fw_cfg ramfb display on AArch64, enable its configuration
+fragment before building::
+
+    make qemu_arm64_defconfig
+    make ramfb.config
+    make -j24
+
+The ACPI fragment can also be applied before building if ACPI is desired.
+Run U-Boot with a graphics display instead of ``-nographic``, for example::
+
+    qemu-system-aarch64 -accel tcg -machine virt,acpi=on \
+        -cpu cortex-a57 -m 1G -vga none -device ramfb \
+        -display gtk,gl=off -serial stdio -monitor none -bios u-boot.bin
+
+The display defaults to 1024 x 768, 32-bit XRGB. The configuration reserves
+16 MiB of framebuffer space before relocation so ramfb and Bochs VGA can
+coexist. The ramfb buffer is mapped as non-cacheable normal memory for direct
+GOP writes, and its pages are reserved in the EFI memory map. The default
+``stdout`` includes ``vidconsole`` for the U-Boot graphical console. Use
+``env set stdout serial`` to disable it without disabling EFI GOP. To check
+GOP, run ``efidebug dh`` or set ``efi_selftest`` to ``graphical output`` and
+run ``bootefi selftest``. The driver does not bind when ``-device ramfb`` is
+absent.
+
 Running U-Boot (secure)
 -----------------------
 

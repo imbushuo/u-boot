@@ -78,8 +78,9 @@ config BACKLIGHT
 config VIDEO_PCI_DEFAULT_FB_SIZE
 	hex "Default framebuffer size to use if no drivers request it"
 	default 0x1000000 if X86
-	default 0x800000 if !X86 && VIDEO_BOCHS
-	default 0x0 if !X86 && !VIDEO_BOCHS
+	default 0x1000000 if VIDEO_BOCHS && VIDEO_QFW_RAMFB
+	default 0x800000 if !X86 && (VIDEO_BOCHS || VIDEO_QFW_RAMFB)
+	default 0x0 if !X86 && !VIDEO_BOCHS && !VIDEO_QFW_RAMFB
 	help
 	  Generally, video drivers request the amount of memory they need for
 	  the frame buffer when they are bound, by setting the size field in
@@ -93,6 +94,10 @@ config VIDEO_PCI_DEFAULT_FB_SIZE
 	  Note: the framebuffer needs to be large enough to store all pixels at
 	  maximum resolution. For example, at 2560 x 1600 with 32 bits per
 	  pixel, 2560 * 1600 * 32 / 8 = 0xfa0000 bytes are needed.
+
+	  QEMU ramfb is discovered through fw_cfg after relocation, so it also
+	  needs this pre-reserved space. Allow for both ramfb and Bochs video
+	  when both drivers are enabled.
 
 config VIDEO_COPY
 	bool "Enable copying the frame buffer to a hardware copy"
@@ -336,6 +341,17 @@ config VIDEO_BOCHS
 	  Enable this to use the Bochs video support provided in the QEMU
 	  emulator. This appears as a PCI device which U-Boot can set up to
 	  provide a frame buffer.
+
+config VIDEO_QFW_RAMFB
+	bool "Enable QEMU fw_cfg ramfb video on AArch64 virt"
+	depends on TARGET_QEMU_ARM_64BIT && QFW && VIDEO
+	select QFW_MMIO
+	select BOARD_EARLY_INIT_R
+	help
+	  Configure QEMU's ramfb display via the writable etc/ramfb fw_cfg
+	  file. A reserved, non-cacheable framebuffer provides the U-Boot
+	  video console and an EFI graphics output protocol (GOP) display
+	  when EFI_LOADER is enabled. Requires QEMU's -device ramfb option.
 
 if VIDEO_BOCHS
 

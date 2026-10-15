@@ -70,6 +70,7 @@ enum {
 #define FW_CFG_DMA_READ	(1 << 1)
 #define FW_CFG_DMA_SKIP	(1 << 2)
 #define FW_CFG_DMA_SELECT	(1 << 3)
+#define FW_CFG_DMA_WRITE	(1 << 4)
 
 /* Bit set in FW_CFG_ID response to indicate DMA interface availability. */
 #define FW_CFG_DMA_ENABLED	(1 << 1)
@@ -173,8 +174,7 @@ struct dm_qfw_ops {
 			      void *address);
 
 	/**
-	 * read_entry_dma() - Read a firmware config entry using the DMA
-	 * interface
+	 * dma_transfer() - Transfer a firmware config entry using DMA
 	 *
 	 * Supply FW_CFG_INVALID as the entry to continue a previous read.  In
 	 * this case, no selector will be issued before reading.
@@ -183,8 +183,9 @@ struct dm_qfw_ops {
 	 *
 	 * @dev: Device to use
 	 * @dma: DMA transfer control struct
+	 * Return: 0 on success, -EIO if QEMU reports a DMA error.
 	 */
-	void (*read_entry_dma)(struct udevice *dev, struct qfw_dma *dma);
+	int (*dma_transfer)(struct udevice *dev, struct qfw_dma *dma);
 };
 
 #define dm_qfw_get_ops(dev) \
@@ -224,6 +225,21 @@ int qfw_get_dev(struct udevice **devp);
  * machine supports it, otherwise PIO/MMIO.
  */
 void qfw_read_entry(struct udevice *dev, u16 entry, u32 size, void *address);
+
+/**
+ * qfw_write_entry() - Write a QEMU firmware config entry using DMA
+ * @dev: QFW device to use.
+ * @entry: Firmware config file selector.
+ * @size: Number of bytes to write.
+ * @address: Source of the data to write.
+ *
+ * Return: 0 on success, -ENOTSUPP if DMA is unavailable, -EIO on DMA error.
+ */
+int qfw_write_entry(struct udevice *dev, u16 entry, u32 size,
+		    const void *address);
+
+/** qfw_ramfb_bind() - Bind the QEMU ramfb video device when present. */
+int qfw_ramfb_bind(void);
 
 /**
  * qfw_read_firmware_list() - Read and cache the QEMU firmware config file

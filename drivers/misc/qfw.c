@@ -16,7 +16,9 @@
 #include <malloc.h>
 #include <qfw.h>
 #include <dm.h>
+#include <memalign.h>
 #include <misc.h>
+#include <cpu_func.h>
 #include <tables_csum.h>
 #include <asm/acpi_table.h>
 
@@ -31,40 +33,62 @@ static void qfw_read_entry_io(struct qfw_dev *qdev, u16 entry, u32 size,
 	ops->read_entry_io(qdev->dev, entry, size, address);
 }
 
-static void qfw_read_entry_dma(struct qfw_dev *qdev, u16 entry, u32 size,
-			       void *address)
+static int qfw_dma_transfer(struct qfw_dev *qdev, u16 entry, u32 size,
+			    const void *address, u32 control)
 {
 	struct dm_qfw_ops *ops = dm_qfw_get_ops(qdev->dev);
-
-	struct qfw_dma dma = {
-		.length = cpu_to_be32(size),
-		.address = cpu_to_be64((uintptr_t)address),
-		.control = cpu_to_be32(FW_CFG_DMA_READ),
-	};
+	ALLOC_CACHE_ALIGN_BUFFER(struct qfw_dma, dma, 1);
+	ulong start = ALIGN_DOWN((ulong)address, ARCH_DMA_MINALIGN);
+	ulong end = ALIGN((ulong)address + size, ARCH_DMA_MINALIGN);
+	int ret;
 
 	/*
-	 * writing FW_CFG_INVALID will cause read operation to resume at last
-	 * offset, otherwise read will start at offset 0
+	 * FW_CFG_INVALID continues the current transfer at its previous offset;
+	 * any other entry selects a file and starts at offset 0.
 	 */
 	if (entry != FW_CFG_INVALID)
-		dma.control |= cpu_to_be32(FW_CFG_DMA_SELECT | (entry << 16));
+		control |= FW_CFG_DMA_SELECT | (entry << 16);
+
+	dma->length = cpu_to_be32(size);
+	dma->address = cpu_to_be64((uintptr_t)address);
+	dma->control = cpu_to_be32(control);
 
 	debug("%s: entry 0x%x, size %u address %p, control 0x%x\n", __func__,
-	      entry, size, address, be32_to_cpu(dma.control));
+	      entry, size, address, control);
 
+	flush_dcache_range(start, end);
+	flush_dcache_range((ulong)dma,
+			   (ulong)dma + ALIGN(sizeof(*dma), ARCH_DMA_MINALIGN));
 	barrier();
 
-	ops->read_entry_dma(qdev->dev, &dma);
+	ret = ops->dma_transfer(qdev->dev, dma);
+	if (control & FW_CFG_DMA_READ)
+		invalidate_dcache_range(start, end);
+
+	return ret;
 }
 
 void qfw_read_entry(struct udevice *dev, u16 entry, u32 size, void *address)
 {
 	struct qfw_dev *qdev = dev_get_uclass_priv(dev);
 
-	if (qdev->dma_present)
-		qfw_read_entry_dma(qdev, entry, size, address);
-	else
+	if (qdev->dma_present) {
+		if (qfw_dma_transfer(qdev, entry, size, address, FW_CFG_DMA_READ))
+			log_err("QEMU fw_cfg DMA read failed (entry %x)\n", entry);
+	} else {
 		qfw_read_entry_io(qdev, entry, size, address);
+	}
+}
+
+int qfw_write_entry(struct udevice *dev, u16 entry, u32 size,
+		    const void *address)
+{
+	struct qfw_dev *qdev = dev_get_uclass_priv(dev);
+
+	if (!qdev->dma_present)
+		return -ENOTSUPP;
+
+	return qfw_dma_transfer(qdev, entry, size, address, FW_CFG_DMA_WRITE);
 }
 
 int qfw_register(struct udevice *dev)

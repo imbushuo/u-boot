@@ -11,6 +11,7 @@
 #include <fdtdec.h>
 #include <init.h>
 #include <log.h>
+#include <qfw.h>
 #include <usb.h>
 #include <virtio_types.h>
 #include <virtio.h>
@@ -100,6 +101,13 @@ static struct mm_region qemu_arm64_mem_map[] = {
 };
 
 struct mm_region *mem_map = qemu_arm64_mem_map;
+#endif
+
+#if CONFIG_IS_ENABLED(VIDEO_QFW_RAMFB)
+int board_early_init_r(void)
+{
+	return qfw_ramfb_bind();
+}
 #endif
 
 int board_late_init(void)

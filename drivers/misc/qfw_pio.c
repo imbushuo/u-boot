@@ -11,6 +11,8 @@
 #include <asm/io.h>
 #include <dm/device.h>
 #include <qfw.h>
+#include <cpu_func.h>
+#include <asm/cache.h>
 
 /*
  * PIO ports are correct for x86, which appears to be the only arch that uses
@@ -42,13 +44,18 @@ static void qfw_pio_read_entry_io(struct udevice *dev, u16 entry, u32 size,
 		data[i++] = inb(FW_DATA_PORT);
 }
 
-/* Read configuration item using fw_cfg DMA interface */
-static void qfw_pio_read_entry_dma(struct udevice *dev, struct qfw_dma *dma)
+/* Transfer a configuration item using the fw_cfg DMA interface */
+static int qfw_pio_dma_transfer(struct udevice *dev, struct qfw_dma *dma)
 {
 	/* the DMA address register is big-endian */
 	outl(cpu_to_be32((uintptr_t)dma), FW_DMA_PORT_HIGH);
 
-	while (be32_to_cpu(dma->control) & ~FW_CFG_DMA_ERROR);
+	do {
+		invalidate_dcache_range((ulong)dma,
+				       (ulong)dma + ARCH_DMA_MINALIGN);
+	} while (be32_to_cpu(dma->control) & ~FW_CFG_DMA_ERROR);
+
+	return be32_to_cpu(dma->control) & FW_CFG_DMA_ERROR ? -EIO : 0;
 }
 
 static int qfw_pio_probe(struct udevice *dev)
@@ -58,7 +65,7 @@ static int qfw_pio_probe(struct udevice *dev)
 
 static struct dm_qfw_ops qfw_pio_ops = {
 	.read_entry_io = qfw_pio_read_entry_io,
-	.read_entry_dma = qfw_pio_read_entry_dma,
+	.dma_transfer = qfw_pio_dma_transfer,
 };
 
 U_BOOT_DRIVER(qfw_pio) = {
