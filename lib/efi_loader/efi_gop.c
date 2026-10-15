@@ -16,6 +16,46 @@
 
 static const efi_guid_t efi_gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
 
+#if CONFIG_IS_ENABLED(VIDEO_QFW_RAMFB)
+extern U_BOOT_DRIVER(qfw_ramfb);
+
+/* Match the GOP device path used by EDK2's QEMU ramfb driver. */
+static struct {
+	struct {
+		struct efi_device_path dp;
+		efi_guid_t guid;
+	} __packed vendor;
+	struct {
+		struct efi_device_path dp;
+		u32 adr;
+	} __packed display;
+	struct efi_device_path end;
+} __packed qemu_ramfb_dp = {
+	.vendor = {
+		.dp = {
+			.type = DEVICE_PATH_TYPE_HARDWARE_DEVICE,
+			.sub_type = DEVICE_PATH_SUB_TYPE_VENDOR,
+			.length = sizeof(struct efi_device_path_vendor),
+		},
+		.guid = EFI_GUID(0x557423a1, 0x63ab, 0x406c, 0xbe, 0x7e,
+				 0x91, 0xcd, 0xbc, 0x08, 0xc4, 0x57),
+	},
+	.display = {
+		.dp = {
+			.type = DEVICE_PATH_TYPE_ACPI_DEVICE,
+			.sub_type = DEVICE_PATH_SUB_TYPE_ACPI_ADR,
+			.length = sizeof(qemu_ramfb_dp.display),
+		},
+		.adr = 0x80010300, /* external digital display */
+	},
+	.end = {
+		.type = DEVICE_PATH_TYPE_END,
+		.sub_type = DEVICE_PATH_SUB_TYPE_END,
+		.length = sizeof(struct efi_device_path),
+	},
+};
+#endif
+
 /**
  * struct efi_gop_obj - graphical output protocol object
  *
@@ -518,6 +558,16 @@ efi_status_t efi_gop_register(void)
 		printf("ERROR: Failure adding GOP protocol\n");
 		return ret;
 	}
+#if CONFIG_IS_ENABLED(VIDEO_QFW_RAMFB)
+	if (vdev->driver == DM_DRIVER_GET(qfw_ramfb)) {
+		ret = efi_add_protocol(&gopobj->header, &efi_guid_device_path,
+				       &qemu_ramfb_dp);
+		if (ret != EFI_SUCCESS) {
+			log_err("Failed to add ramfb GOP device path\n");
+			return ret;
+		}
+	}
+#endif
 	gopobj->ops.query_mode = gop_query_mode;
 	gopobj->ops.set_mode = gop_set_mode;
 	gopobj->ops.blt = gop_blt;

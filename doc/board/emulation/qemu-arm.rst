@@ -159,6 +159,16 @@ GOP, run ``efidebug dh`` or set ``efi_selftest`` to ``graphical output`` and
 run ``bootefi selftest``. The driver does not bind when ``-device ramfb`` is
 absent.
 
+For Windows on ARM, use ``-machine virt,virtualization=on,acpi=on`` with
+``-device ramfb``. The tested Windows boot image issues an OEM SMC
+(``0xC3000001``) after loading. This is not a PSCI call: QEMU's FADT
+correctly advertises PSCI via HVC on the default ``virt`` machine and via
+SMC with ``virtualization=on``. The FADT's PSCI conduit flag does not
+govern OEM calls; without SMC support, the Windows instruction traps as
+undefined. U-Boot attaches the QEMU ramfb vendor/display device path to
+its EFI GOP handle, which Windows needs to use the display after the
+firmware boot phase.
+
 Running U-Boot (secure)
 -----------------------
 

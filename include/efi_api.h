@@ -673,6 +673,7 @@ struct efi_device_path_controller {
 
 #define DEVICE_PATH_TYPE_ACPI_DEVICE		0x02
 #  define DEVICE_PATH_SUB_TYPE_ACPI_DEVICE	0x01
+#  define DEVICE_PATH_SUB_TYPE_ACPI_ADR		0x03
 
 #define EFI_PNP_ID(ID)				(u32)(((ID) << 16) | 0x41D0)
 #define EISA_PNP_ID(ID)				EFI_PNP_ID(ID)
