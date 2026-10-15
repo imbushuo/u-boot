@@ -108,6 +108,18 @@ Set the CROSS_COMPILE environment variable as usual, and run:
     make qemu_arm64_defconfig
     make
 
+To expose QEMU's ACPI tables to EFI applications instead of a device tree,
+enable the ACPI configuration fragment before building::
+
+    make qemu_arm64_defconfig
+    make acpi.config
+    make
+
+Run QEMU with ``-machine virt,acpi=on`` so it provides the tables through
+fw_cfg. In U-Boot, ``acpi list -c`` shows the tables and their checksums.
+After ``bootefi hello``, ``efidebug tables`` lists the ACPI table instead of
+a device tree. QEMU still provides a device tree for U-Boot itself.
+
 Running U-Boot (secure)
 -----------------------
 
