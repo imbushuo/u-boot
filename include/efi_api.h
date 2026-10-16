@@ -346,6 +346,24 @@ struct efi_rt_properties_table {
 	u32 runtime_services_supported;
 };
 
+/* Experimental Linux/EFI PSCI conduit used by AsahiLinux/m1n1#618 */
+#define LINUX_EFI_ARM_PSCI_HANDLER_TABLE_GUID \
+	EFI_GUID(0xf9b47651, 0x4674, 0x4ed9, 0x94, 0x3b, \
+		 0x5c, 0xea, 0xd2, 0x10, 0x9a, 0x8b)
+
+#define EFI_PSCI_MAX_FN	0x20
+
+typedef unsigned long (EFIAPI *efi_psci_handler_t)(unsigned long fid,
+						    unsigned long arg0,
+						    unsigned long arg1,
+						    unsigned long arg2);
+
+struct efi_arm_psci_handler_table {
+	u32 version;
+	efi_psci_handler_t handler;
+	s32 features[EFI_PSCI_MAX_FN];
+};
+
 #define EFI_OPTIONAL_PTR	0x00000001
 
 struct efi_runtime_services {

@@ -962,6 +962,8 @@ extern void *efi_bounce_buffer;
 /* Indicate supported runtime services */
 efi_status_t efi_init_runtime_supported(void);
 
+efi_status_t efi_psci_register(void);
+
 /* Update CRC32 in table header */
 void __efi_runtime efi_update_table_header_crc32(struct efi_table_hdr *table);
 

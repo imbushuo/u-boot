@@ -44,6 +44,7 @@ obj-y += efi_load_options.o
 obj-y += efi_memory.o
 obj-y += efi_root_node.o
 obj-y += efi_runtime.o
+obj-$(CONFIG_EFI_PSCI_CONDUIT) += efi_psci.o efi_psci_trampoline.o
 obj-y += efi_setup.o
 obj-y += efi_string.o
 obj-$(CONFIG_EFI_UNICODE_COLLATION_PROTOCOL2) += efi_unicode_collation.o

@@ -169,6 +169,42 @@ undefined. U-Boot attaches the QEMU ramfb vendor/display device path to
 its EFI GOP handle, which Windows needs to use the display after the
 firmware boot phase.
 
+Experimental EFI PSCI conduit
+------------------------------
+
+On AArch64 QEMU virt, ``CONFIG_EFI_PSCI_CONDUIT`` is enabled by default when
+EFI loading and the PSCI firmware driver are enabled. It installs the
+experimental PSCI-via-UEFI configuration table proposed in
+`AsahiLinux/m1n1#618 <https://github.com/AsahiLinux/m1n1/pull/618>`_.
+The table contains a version, a four-argument EFI-ABI handler and a
+32-entry feature array. It is available at runtime, including after
+ExitBootServices and SetVirtualAddressMap. This does not change the ACPI FADT:
+reporting this conduit through ACPI has not been defined yet.
+
+QEMU's platform backend forwards power calls to its native PSCI service.
+CPU_ON enters a physical trampoline with an individual 64 KiB stack in
+64 KiB-aligned EFI runtime memory. The PSCI table, CPU state and all
+128 stacks are EFI runtime data (write-back, runtime); the handler and
+trampoline remain EFI runtime code. The runtime table pointers are
+converted when SetVirtualAddressMap is called. If the device tree
+describes more than 128 CPUs (including offline CPUs), U-Boot logs a
+warning and omits the PSCI table without disabling other EFI services.
+Platforms without native PSCI can provide their own
+``efi_psci_platform_init()``, ``efi_psci_platform_call()`` and optional
+``efi_psci_platform_secondary_init()`` implementation.
+
+The conduit is deliberately **not** advertised in the device tree or
+ACPI. Only EFI consumers that know the experimental table's GUID can
+discover it; ordinary device-tree and direct ``booti`` handoffs are
+unchanged.
+
+To exercise CPU_ON and CPU_OFF through this table on QEMU virt with at
+least two CPUs, run ``env set efi_selftest psci conduit`` followed by
+``bootefi selftest``. Select ``psci conduit runtime`` to test after
+ExitBootServices or ``psci conduit virtual`` to test after
+SetVirtualAddressMap. ``psci conduit poweroff`` and ``psci conduit reset``
+test system power actions through the table and stop the VM.
+
 Running U-Boot (secure)
 -----------------------
 

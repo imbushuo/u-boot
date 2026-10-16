@@ -107,6 +107,16 @@ config EFI_HAVE_RUNTIME_RESET
 	depends on ARCH_BCM283X || FSL_LAYERSCAPE || PSCI_RESET || \
 		   SANDBOX || SYSRESET_SBI || SYSRESET_X86
 
+config EFI_PSCI_CONDUIT
+	bool "Expose PSCI calls through an EFI runtime configuration table"
+	depends on ARM64 && ARM_PSCI_FW
+	default y if TARGET_QEMU_ARM_64BIT
+	help
+	  Provide the experimental PSCI-via-UEFI configuration table. A
+	  platform must supply an EFI-runtime-safe PSCI backend. On QEMU
+	  virt this forwards calls to the PSCI firmware described by QEMU's
+	  device tree.
+
 endmenu
 
 menu "UEFI Variables"

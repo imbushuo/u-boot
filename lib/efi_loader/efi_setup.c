@@ -382,6 +382,14 @@ efi_status_t efi_init_obj_list(void)
 	if (ret != EFI_SUCCESS)
 		goto out;
 
+	if (IS_ENABLED(CONFIG_EFI_PSCI_CONDUIT)) {
+		ret = efi_psci_register();
+		if (ret == EFI_UNSUPPORTED)
+			ret = EFI_SUCCESS;
+		else if (ret != EFI_SUCCESS)
+			goto out;
+	}
+
 	/* Execute capsules after reboot */
 	if (IS_ENABLED(CONFIG_EFI_CAPSULE_ON_DISK) &&
 	    !IS_ENABLED(CONFIG_EFI_CAPSULE_ON_DISK_EARLY))
