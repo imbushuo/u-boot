@@ -213,6 +213,7 @@ enum acpi_pm_profile {
 
 /* ARM boot flags */
 #define ACPI_ARM_PSCI_COMPLIANT		BIT(0)
+#define ACPI_ARM_PSCI_USE_EFI		BIT(2)	/* Experimental EFI conduit */
 
 enum acpi_address_space_type {
 	ACPI_ADDRESS_SPACE_MEMORY = 0,	/* System memory */

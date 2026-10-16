@@ -193,10 +193,13 @@ Platforms without native PSCI can provide their own
 ``efi_psci_platform_init()``, ``efi_psci_platform_call()`` and optional
 ``efi_psci_platform_secondary_init()`` implementation.
 
-The conduit is deliberately **not** advertised in the device tree or
-ACPI. Only EFI consumers that know the experimental table's GUID can
-discover it; ordinary device-tree and direct ``booti`` handoffs are
-unchanged.
+For an ACPI boot with an available conduit, U-Boot marks the FADT's ARM
+Architecture Boot Flags as PSCI-compliant (bit 0) and sets the experimental
+EFI conduit flag (bit 2). It preserves QEMU's existing SMC/HVC selection
+(bit 1) and updates the FADT checksum before installing the ACPI table.
+When the conduit is unavailable, such as on a machine with more than
+128 CPUs, the FADT is left unchanged. Device-tree and direct ``booti``
+handoffs remain unchanged.
 
 To exercise CPU_ON and CPU_OFF through this table on QEMU virt with at
 least two CPUs, run ``env set efi_selftest psci conduit`` followed by
