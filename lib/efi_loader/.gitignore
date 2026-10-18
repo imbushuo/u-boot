@@ -1,3 +1,4 @@
 *.efi
 *.so
 *.S
+!efi_psci_trampoline.S
