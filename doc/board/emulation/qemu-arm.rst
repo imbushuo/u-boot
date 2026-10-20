@@ -108,7 +108,7 @@ Set the CROSS_COMPILE environment variable as usual, and run:
     make qemu_arm64_defconfig
     make
 
-To expose QEMU's ACPI tables to EFI applications instead of a device tree,
+To expose QEMU's ACPI tables to EFI applications alongside a device tree,
 enable the ACPI configuration fragment before building::
 
     make qemu_arm64_defconfig
@@ -117,8 +117,16 @@ enable the ACPI configuration fragment before building::
 
 Run QEMU with ``-machine virt,acpi=on`` so it provides the tables through
 fw_cfg. In U-Boot, ``acpi list -c`` shows the tables and their checksums.
-After ``bootefi hello``, ``efidebug tables`` lists the ACPI table instead of
-a device tree. QEMU still provides a device tree for U-Boot itself.
+On QEMU AArch64, ``CONFIG_EFI_DT_WITH_ACPI`` is enabled by default with ACPI.
+After ``bootefi hello``, ``efidebug tables`` lists both the ACPI table and a
+device tree. The EFI device-tree fixup protocol is also enabled by default.
+The OS loader chooses which hardware description to use. U-Boot continues
+to use QEMU's device tree internally and hands EFI applications a separate,
+fixed-up copy. Boot options may still supply their own device tree.
+Disable ``CONFIG_EFI_DT_WITH_ACPI`` to restore ACPI-only handoff. Dual-table
+handoff does not advertise EBBR 2.1 conformance, which requires a single
+hardware description.
+
 The fragment also reserves enough relocated bloblist space for QEMU's ACPI
 tables so they do not overwrite U-Boot's control device tree.
 

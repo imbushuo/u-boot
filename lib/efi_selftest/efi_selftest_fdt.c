@@ -166,8 +166,12 @@ static int setup(const efi_handle_t img_handle,
 		efi_st_error("Missing device tree\n");
 		return EFI_ST_FAILURE;
 	}
-	if (acpi) {
+	if (acpi && !IS_ENABLED(CONFIG_EFI_DT_WITH_ACPI)) {
 		efi_st_error("Found ACPI table and device tree\n");
+		return EFI_ST_FAILURE;
+	}
+	if (!acpi && IS_ENABLED(CONFIG_EFI_DT_WITH_ACPI)) {
+		efi_st_error("Missing ACPI table alongside device tree\n");
 		return EFI_ST_FAILURE;
 	}
 	return EFI_ST_SUCCESS;

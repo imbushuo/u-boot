@@ -212,6 +212,34 @@ def test_efi_helloworld_builtin(ubman):
     expected_text = 'Hello, world'
     assert expected_text in output
 
+@pytest.mark.buildconfigspec('efi_dt_with_acpi')
+@pytest.mark.buildconfigspec('efi_dt_fixup')
+@pytest.mark.buildconfigspec('cmd_bootefi_hello')
+@pytest.mark.buildconfigspec('cmd_efidebug')
+@pytest.mark.buildconfigspec('cmd_fdt')
+@pytest.mark.buildconfigspec('cmd_crc32')
+@pytest.mark.parametrize('fdt_arg', ['', ' ${fdtcontroladdr}'])
+def test_efi_device_tree_with_acpi(ubman, fdt_arg):
+    """Expose both hardware descriptions without modifying the control DT."""
+    ubman.run_command('fdt addr ${fdtcontroladdr}')
+    ubman.run_command('fdt header get efi_test_fdt_size totalsize')
+    crc_cmd = 'crc32 ${fdtcontroladdr} ${efi_test_fdt_size}'
+    original_crc = ubman.run_command(crc_cmd)
+
+    output = ubman.run_command('bootefi hello' + fdt_arg)
+    assert 'Hello, world' in output
+    assert 'Have device tree' in output
+    assert 'Have ACPI 2.0 table' in output
+    assert 'ignoring DT' not in output
+
+    output = ubman.run_command('efidebug tables')
+    assert 'ACPI table' in output
+    assert 'device tree' in output
+    output = ubman.run_command('efidebug dh')
+    assert 'Device-Tree Fixup' in output
+    assert ubman.run_command(crc_cmd) == original_crc
+    ubman.run_command('setenv efi_test_fdt_size')
+
 @pytest.mark.buildconfigspec('of_control')
 @pytest.mark.buildconfigspec('cmd_bootefi')
 @pytest.mark.buildconfigspec('cmd_tftpboot')

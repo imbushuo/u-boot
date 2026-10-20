@@ -71,6 +71,8 @@ obj-$(CONFIG_EFI_TCG2_PROTOCOL) += efi_selftest_tcg2.o
 
 ifeq ($(CONFIG_GENERATE_ACPI_TABLE),)
 obj-y += efi_selftest_fdt.o
+else
+obj-$(CONFIG_EFI_DT_WITH_ACPI) += efi_selftest_fdt.o
 endif
 
 ifeq ($(CONFIG_BLK)$(CONFIG_DOS_PARTITION),yy)

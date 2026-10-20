@@ -1319,7 +1319,8 @@ efi_status_t efi_bootmgr_run(void *fdt)
 		return ret;
 	}
 
-	if (!IS_ENABLED(CONFIG_GENERATE_ACPI_TABLE)) {
+	if (!IS_ENABLED(CONFIG_GENERATE_ACPI_TABLE) ||
+	    IS_ENABLED(CONFIG_EFI_DT_WITH_ACPI)) {
 		ret = load_fdt_from_load_option(&fdt_lo);
 		if (ret != EFI_SUCCESS)
 			return ret;
@@ -1337,7 +1338,8 @@ efi_status_t efi_bootmgr_run(void *fdt)
 	 */
 	ret = efi_install_fdt(fdt);
 
-	if (!IS_ENABLED(CONFIG_GENERATE_ACPI_TABLE)) {
+	if (!IS_ENABLED(CONFIG_GENERATE_ACPI_TABLE) ||
+	    IS_ENABLED(CONFIG_EFI_DT_WITH_ACPI)) {
 		free(fdt_lo);
 		if (fdt_distro)
 			efi_free_pages((uintptr_t)fdt_distro,

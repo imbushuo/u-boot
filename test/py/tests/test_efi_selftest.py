@@ -23,7 +23,6 @@ def test_efi_selftest_base(ubman):
 @pytest.mark.buildconfigspec('cmd_bootefi_selftest')
 @pytest.mark.buildconfigspec('hush_parser')
 @pytest.mark.buildconfigspec('of_control')
-@pytest.mark.notbuildconfigspec('generate_acpi_table')
 def test_efi_selftest_device_tree(ubman):
     """Test the device tree support in the UEFI sub-system
 
@@ -31,6 +30,11 @@ def test_efi_selftest_device_tree(ubman):
 
     This test executes the UEFI unit test by calling 'bootefi selftest'.
     """
+    config = ubman.config.buildconfig
+    if (config.get('config_generate_acpi_table') == 'y' and
+            config.get('config_efi_dt_with_acpi') != 'y'):
+        pytest.skip('Device tree is not exposed with ACPI-only handoff')
+
     ubman.run_command(cmd='setenv efi_selftest list')
     output = ubman.run_command('bootefi selftest')
     assert '\'device tree\'' in output

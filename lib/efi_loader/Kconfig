@@ -432,9 +432,21 @@ config EFI_DEVICE_PATH_UTIL
 	  The device path utilities protocol creates and manipulates device
 	  paths and device nodes. It is required to run the EFI Shell.
 
+config EFI_DT_WITH_ACPI
+	bool "Expose device tree alongside ACPI tables"
+	depends on GENERATE_ACPI_TABLE && OF_CONTROL
+	default y if TARGET_QEMU_ARM_64BIT
+	help
+	  Publish both the device tree and ACPI tables to UEFI applications,
+	  leaving the choice of hardware description to the OS loader.
+	  U-Boot continues to use its control device tree internally.
+
+	  This is not EBBR compliant, since EBBR requires a single hardware
+	  description. Other platforms retain ACPI-only handoff by default.
+
 config EFI_DT_FIXUP
 	bool "Device tree fixup protocol"
-	depends on !GENERATE_ACPI_TABLE
+	depends on !GENERATE_ACPI_TABLE || EFI_DT_WITH_ACPI
 	default y
 	help
 	  The EFI device-tree fix-up protocol provides a function to let the
@@ -576,6 +588,7 @@ config EFI_ECPT
 config EFI_EBBR_2_1_CONFORMANCE
 	bool "Add the EBBRv2.1 conformance entry to the ECPT table"
 	depends on BOOTMETH_EFI_BOOTMGR
+	depends on !EFI_DT_WITH_ACPI
 	depends on EFI_ECPT
 	depends on EFI_LOADER_HII
 	depends on EFI_RISCV_BOOT_PROTOCOL || !RISCV

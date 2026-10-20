@@ -28,6 +28,8 @@ The *bootefi* command is used to launch a UEFI binary which can be any of
 
 An operating system requires a hardware description which can either be
 presented as ACPI table (CONFIG_GENERATE_ACPI_TABLE=y) or as device-tree.
+With CONFIG_EFI_DT_WITH_ACPI=y, both are exposed and the OS loader chooses
+which hardware description to use.
 The load address of the device-tree may be provided as parameter *fdt_addr*. If
 this address is not specified, the bootefi command will try to fall back in
 sequence to:
@@ -87,7 +89,8 @@ fdt_addr
     Address of the device-tree or '-'. If no address is specified, the
     environment variable $fdt_addr is used as first fallback, the address of
     U-Boot's internal device-tree $fdtcontroladdr as second fallback.
-    When using ACPI no device-tree shall be specified.
+    When using ACPI no device-tree shall be specified unless
+    CONFIG_EFI_DT_WITH_ACPI is enabled.
 
 Note
     UEFI binaries that are contained in FIT images are launched via the

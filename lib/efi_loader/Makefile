@@ -19,6 +19,8 @@ apps-$(CONFIG_GENERATE_SMBIOS_TABLE) += smbiosdump
 apps-$(CONFIG_EFI_LOAD_FILE2_INITRD) += initrddump
 ifeq ($(CONFIG_GENERATE_ACPI_TABLE),)
 apps-y += dtbdump
+else
+apps-$(CONFIG_EFI_DT_WITH_ACPI) += dtbdump
 endif
 apps-$(CONFIG_BOOTEFI_TESTAPP_COMPILE) += testapp
 apps-y += dbginfodump

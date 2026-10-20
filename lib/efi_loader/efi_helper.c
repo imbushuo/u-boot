@@ -533,8 +533,8 @@ void *efi_get_configuration_table(const efi_guid_t *guid)
  * tree located at the address indicated by environment variable fdt_addr or as
  * fallback fdtcontroladdr will be used.
  *
- * On architectures using ACPI tables device trees shall not be installed as
- * configuration table.
+ * With ACPI tables, the device tree is only installed as a configuration table
+ * if CONFIG_EFI_DT_WITH_ACPI is enabled.
  *
  * @fdt:	address of device tree or EFI_FDT_USE_INTERNAL to use
  *		the hardware device tree as indicated by environment variable
@@ -551,7 +551,8 @@ efi_status_t efi_install_fdt(void *fdt)
 	 * The EBBR spec requires that we have either an FDT or an ACPI table
 	 * but not both.
 	 */
-	if (CONFIG_IS_ENABLED(GENERATE_ACPI_TABLE) && fdt)
+	if (CONFIG_IS_ENABLED(GENERATE_ACPI_TABLE) &&
+	    !CONFIG_IS_ENABLED(EFI_DT_WITH_ACPI) && fdt)
 		log_warning("Can't have ACPI table and device tree - ignoring DT.\n");
 
 	if (fdt == EFI_FDT_USE_INTERNAL) {
@@ -582,7 +583,8 @@ efi_status_t efi_install_fdt(void *fdt)
 		return EFI_LOAD_ERROR;
 	}
 
-	if (CONFIG_IS_ENABLED(GENERATE_ACPI_TABLE)) {
+	if (CONFIG_IS_ENABLED(GENERATE_ACPI_TABLE) &&
+	    !CONFIG_IS_ENABLED(EFI_DT_WITH_ACPI)) {
 		/* Create memory reservations as indicated by the device tree */
 		efi_carve_out_dt_rsv(fdt);
 		return EFI_SUCCESS;
