@@ -15,17 +15,25 @@ the following SoCs work:
  - Apple M2 Pro SoC (t6020)
  - Apple M2 Max SoC (t6021)
  - Apple M2 Ultra SoC (t6022)
+ - Apple M3 SoC (t8122)
+ - Apple M3 Pro SoC (t6030)
+ - Apple M3 Max SoCs (t6031, t6034)
+ - Apple M3 Ultra SoC (t6032)
 
 On these SoCs the following hardware is supported:
 
  - S5L serial port
  - SPI keyboard (on M1 laptops)
+ - MTP keyboard driver (requires additional device-tree nodes; see below)
  - Framebuffer
  - NVMe storage
  - USB 3.1 Type-C ports
+ - ASMedia USB controller (when its firmware is available)
 
-Device trees are provided in dts/upstream/src/arm64/apple/ and available
-for all M1 and M2 (t8103, t8112, t600x and t602x) devices.
+Device trees are provided in dts/upstream/src/arm64/apple/ for M1, M2,
+and M3 (t8122) devices. The t6030/t6031/t6034/t6032 boards require
+separate matching device trees; they are not yet in this upstream subtree
+or in the asahi-releng branch.
 
 Building U-Boot
 ---------------
@@ -41,6 +49,22 @@ This builds ``u-boot-nodtb.bin`` and all upstream Apple device trees in
 binary because m1n1 supplies the selected tree at boot. ``make dtbs`` also
 builds the complete Apple set without rebuilding U-Boot. Not every Apple
 device with an upstream tree is supported by this U-Boot configuration.
+The video console uses the 16x32 font by default instead of 8x16.
+
+The MTP keyboard driver matches ``apple,dockchannel-hid`` and needs
+``apple,fifo-size``, an ``apple,helper-cpu`` reference to an
+``apple,rtk-helper-asc4`` device, and DockChannel ``data`` and ``rmt-data``
+registers. The bundled upstream Apple device trees do not yet describe
+these devices, and m1n1 does not add them during handoff. As a result, the
+MTP driver builds but cannot bind with those device trees. Using an older
+m1n1 alone will not make the built-in MTP keyboard work.
+
+U-Boot looks for the EFI system partition on Apple NVMe storage, preferring
+the partition named by ``/chosen/asahi,efi-system-partition``. It uses this
+partition for FAT-backed environment storage, EFI variables and firmware
+loading. The ASMedia xHCI controller requires a separately supplied
+``vendorfw/u-boot/asmedia/asm2214a-apple.bin`` on that partition; the
+firmware binary is not included in the U-Boot build.
 
 Image creation
 --------------
@@ -81,9 +105,9 @@ At the U-Boot prompt, run either::
     => bootefi pscitest reset
     => bootefi pscitest poweroff
 
-The test starts an offline CPU, confirms it reached its entry point, and
-waits 15 seconds before requesting the selected power action. No disk or
-``bootargs`` changes are needed. The standalone
+The test starts every offline secondary CPU, reports how many reached their
+entry points, and waits 15 seconds before requesting the selected power
+action. No disk or ``bootargs`` changes are needed. The standalone
 ``lib/efi_loader/pscitest.efi`` is still built for testing from an external
 EFI loader. If the selected action is unavailable, the application returns
 an error; once a secondary CPU has started, it keeps the image resident if

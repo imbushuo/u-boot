@@ -527,8 +527,9 @@ config CMD_BOOTEFI_PSCITEST
 	default y if ARCH_APPLE || TARGET_QEMU_ARM_64BIT
 	help
 	  Embed the PSCI selftest EFI application in U-Boot. Run it using
-	  'bootefi pscitest reset' or 'bootefi pscitest poweroff' to start a
-	  secondary CPU and request the selected power action after 15 seconds.
+	  'bootefi pscitest reset' or 'bootefi pscitest poweroff' to start
+	  every offline secondary CPU and request the selected power action
+	  after 15 seconds.
 
 source "lib/efi_selftest/Kconfig"
 endif

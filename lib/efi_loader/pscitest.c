@@ -9,11 +9,12 @@
 
 #define SECONDARY_READY	0x1234abcd5678ef90ULL
 #define FDT_MAX_SIZE	(16 * 1024 * 1024)
+#define PSCI_TEST_MAX_CPUS	128
 
 static const efi_guid_t loaded_image_guid = EFI_LOADED_IMAGE_PROTOCOL_GUID;
 static const efi_guid_t psci_guid = LINUX_EFI_ARM_PSCI_HANDLER_TABLE_GUID;
 static const efi_guid_t fdt_guid = EFI_FDT_GUID;
-static u64 secondary_ready;
+static u64 secondary_ready[PSCI_TEST_MAX_CPUS];
 
 static bool is_space(u16 c)
 {
@@ -72,9 +73,39 @@ static bool fdt_name_eq(const char *name, size_t length, const char *expected)
 	return i < length && !name[i] && !expected[i];
 }
 
-static efi_status_t find_offline_cpu(const void *fdt,
-				     const struct efi_arm_psci_handler_table *psci,
-				     u64 *target)
+static efi_status_t record_offline_cpu(const fdt32_t *reg, u32 reg_size,
+				       u32 addr_cells,
+				       const struct efi_arm_psci_handler_table *psci,
+				       u64 *targets, size_t *count)
+{
+	unsigned long state;
+	u64 mpidr;
+	size_t i;
+
+	if (!reg || reg_size != addr_cells * 4 ||
+	    (addr_cells != 1 && addr_cells != 2))
+		return EFI_LOAD_ERROR;
+	mpidr = fdt32_to_cpu(reg[0]);
+	if (addr_cells == 2)
+		mpidr = mpidr << 32 | fdt32_to_cpu(reg[1]);
+	state = psci->handler(ARM_PSCI_0_2_FN64_AFFINITY_INFO, mpidr, 0, 0);
+	if (state == PSCI_AFFINITY_LEVEL_ON)
+		return EFI_SUCCESS;
+	if (state != PSCI_AFFINITY_LEVEL_OFF)
+		return EFI_DEVICE_ERROR;
+
+	for (i = 0; i < *count; i++)
+		if (targets[i] == mpidr)
+			return EFI_LOAD_ERROR;
+	if (*count == PSCI_TEST_MAX_CPUS)
+		return EFI_OUT_OF_RESOURCES;
+	targets[(*count)++] = mpidr;
+	return EFI_SUCCESS;
+}
+
+static efi_status_t find_offline_cpus(const void *fdt,
+				      const struct efi_arm_psci_handler_table *psci,
+				      u64 *targets, size_t *count)
 {
 	const struct fdt_header *header = fdt;
 	const u8 *bytes = fdt, *pos, *end, *strings;
@@ -173,21 +204,14 @@ static efi_status_t find_offline_cpu(const void *fdt,
 			if (!depth)
 				return EFI_LOAD_ERROR;
 			if (cpu && depth == 3) {
-				u64 mpidr;
-				unsigned long state;
+				if (enabled) {
+					efi_status_t ret;
 
-				if (enabled && reg && reg_size == addr_cells * 4 &&
-				    (addr_cells == 1 || addr_cells == 2)) {
-					mpidr = fdt32_to_cpu(reg[0]);
-					if (addr_cells == 2)
-						mpidr = mpidr << 32 |
-							fdt32_to_cpu(reg[1]);
-					state = psci->handler(ARM_PSCI_0_2_FN64_AFFINITY_INFO,
-							      mpidr, 0, 0);
-					if (state == PSCI_AFFINITY_LEVEL_OFF) {
-						*target = mpidr;
-						return EFI_SUCCESS;
-					}
+					ret = record_offline_cpu(reg, reg_size,
+								 addr_cells, psci,
+								 targets, count);
+					if (ret != EFI_SUCCESS)
+						return ret;
 				}
 				cpu = false;
 			}
@@ -198,7 +222,8 @@ static efi_status_t find_offline_cpu(const void *fdt,
 		case FDT_NOP:
 			break;
 		case FDT_END:
-			return depth ? EFI_LOAD_ERROR : EFI_NOT_FOUND;
+			return depth ? EFI_LOAD_ERROR :
+			       *count ? EFI_SUCCESS : EFI_NOT_FOUND;
 		default:
 			return EFI_LOAD_ERROR;
 		}
@@ -225,8 +250,10 @@ efi_status_t EFIAPI efi_main(efi_handle_t handle, struct efi_system_table *systa
 	const void *fdt;
 	unsigned long fid, result;
 	efi_status_t status;
-	u64 target, observed;
-	u32 i;
+	u64 targets[PSCI_TEST_MAX_CPUS], observed;
+	bool launched[PSCI_TEST_MAX_CPUS] = {};
+	size_t count = 0;
+	u32 i, attempt, started = 0, ready = 0, failed = 0;
 
 	status = bs->handle_protocol(handle, &loaded_image_guid, (void **)&image);
 	if (status != EFI_SUCCESS)
@@ -250,40 +277,76 @@ efi_status_t EFIAPI efi_main(efi_handle_t handle, struct efi_system_table *systa
 		out->output_string(out, u"PSCI conduit, power action, or DT unavailable\r\n");
 		return EFI_UNSUPPORTED;
 	}
-	status = find_offline_cpu(fdt, psci, &target);
+	status = find_offline_cpus(fdt, psci, targets, &count);
 	if (status != EFI_SUCCESS) {
-		out->output_string(out, u"No offline secondary CPU in device tree\r\n");
+		out->output_string(out, status == EFI_NOT_FOUND ?
+				   u"No offline secondary CPU in device tree\r\n" :
+				   u"Failed to enumerate secondary CPUs\r\n");
 		return status;
 	}
 
-	out->output_string(out, u"Starting secondary CPU ");
-	print_hex(out, target);
-	out->output_string(out, u"\r\n");
-	secondary_ready = 0;
-	result = psci->handler(ARM_PSCI_0_2_FN64_CPU_ON, target,
-			       (uintptr_t)secondary_entry,
-			       (uintptr_t)&secondary_ready);
-	if (result != ARM_PSCI_RET_SUCCESS) {
-		out->output_string(out, u"PSCI CPU_ON failed: ");
-		print_hex(out, result);
+	out->output_string(out, u"Starting all offline secondary CPUs\r\n");
+	for (i = 0; i < count; i++) {
+		secondary_ready[i] = 0;
+		out->output_string(out, u"CPU ");
+		print_hex(out, targets[i]);
+		result = psci->handler(ARM_PSCI_0_2_FN64_CPU_ON, targets[i],
+				       (uintptr_t)secondary_entry,
+				       (uintptr_t)&secondary_ready[i]);
+		if (result == ARM_PSCI_RET_SUCCESS) {
+			launched[i] = true;
+			started++;
+		} else {
+			failed++;
+			out->output_string(out, u" CPU_ON failed: ");
+			print_hex(out, result);
+		}
 		out->output_string(out, u"\r\n");
+	}
+	if (!started) {
+		out->output_string(out, u"No secondary CPU started\r\n");
 		return EFI_DEVICE_ERROR;
 	}
 
-	for (i = 0; i < 500; i++) {
-		asm volatile("ldar %x0, [%1]" : "=r"(observed)
-			     : "r"(&secondary_ready) : "memory");
-		if (observed == SECONDARY_READY)
+	for (attempt = 0; attempt < 500; attempt++) {
+		ready = 0;
+		for (i = 0; i < count; i++) {
+			if (!launched[i])
+				continue;
+			asm volatile("ldar %x0, [%1]" : "=r"(observed)
+				     : "r"(&secondary_ready[i]) : "memory");
+			if (observed == SECONDARY_READY)
+				ready++;
+		}
+		if (ready == started)
 			break;
-		if (bs->stall(10000) != EFI_SUCCESS)
+		if (bs->stall(10000) != EFI_SUCCESS) {
+			out->output_string(out, u"Stall failed while waiting for CPUs\r\n");
 			break;
+		}
 	}
-	if (i == 500)
-		out->output_string(out, u"Secondary CPU did not signal within 5s\r\n");
-	else if (observed != SECONDARY_READY)
-		out->output_string(out, u"Unable to wait for secondary CPU\r\n");
-	else
-		out->output_string(out, u"Secondary CPU reached its entry point\r\n");
+	ready = 0;
+	for (i = 0; i < count; i++) {
+		if (!launched[i])
+			continue;
+		asm volatile("ldar %x0, [%1]" : "=r"(observed)
+			     : "r"(&secondary_ready[i]) : "memory");
+		if (observed == SECONDARY_READY) {
+			ready++;
+			continue;
+		}
+		out->output_string(out, u"CPU did not reach entry: ");
+		print_hex(out, targets[i]);
+		out->output_string(out, u"\r\n");
+		failed++;
+	}
+	out->output_string(out, u"Secondary CPUs reached entry: ");
+	print_hex(out, ready);
+	out->output_string(out, u" / ");
+	print_hex(out, count);
+	out->output_string(out, u"\r\n");
+	if (failed)
+		out->output_string(out, u"Some secondary CPUs failed to start\r\n");
 
 	out->output_string(out, u"Waiting 15 seconds before power action\r\n");
 	for (i = 0; i < 15; i++) {

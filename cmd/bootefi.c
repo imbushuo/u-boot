@@ -264,7 +264,7 @@ U_BOOT_LONGHELP(bootefi,
 #endif
 #ifdef CONFIG_CMD_BOOTEFI_PSCITEST
 	"bootefi pscitest <reset|poweroff>\n"
-	"  - start a secondary CPU, then reset or power off after 15 seconds\n"
+	"  - start all offline secondary CPUs, then reset or power off after 15 seconds\n"
 #endif
 #ifdef CONFIG_CMD_BOOTEFI_SELFTEST
 	"bootefi selftest [fdt address]\n"
