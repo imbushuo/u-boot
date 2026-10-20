@@ -8,6 +8,8 @@
 #include <asm/io.h>
 #include <linux/apple-mailbox.h>
 #include <linux/delay.h>
+#include <linux/errno.h>
+#include <time.h>
 
 #define REG_A2I_STAT	0x110
 #define  REG_A2I_STAT_EMPTY	BIT(17)
@@ -37,11 +39,15 @@ static int apple_mbox_send(struct mbox_chan *chan, const void *data)
 {
 	struct apple_mbox_priv *priv = dev_get_priv(chan->dev);
 	const struct apple_mbox_msg *msg = data;
+	ulong start = get_timer(0);
 
 	writeq(msg->msg0, priv->base + REG_A2I_MSG0);
 	writeq(msg->msg1, priv->base + REG_A2I_MSG1);
-	while (readl(priv->base + REG_A2I_STAT) & REG_A2I_STAT_FULL)
+	while (readl(priv->base + REG_A2I_STAT) & REG_A2I_STAT_FULL) {
+		if (get_timer(start) >= 1000)
+			return -ETIMEDOUT;
 		udelay(1);
+	}
 
 	return 0;
 }

@@ -26,11 +26,13 @@ struct efi_psci_state {
 #define EFI_PSCI_RUNTIME_SIZE	(SZ_64K + EFI_PSCI_MAX_CPUS * EFI_PSCI_STACK_SIZE)
 
 struct efi_psci_cpu __efi_runtime_data *efi_psci_cpus_phys;
+struct efi_psci_cpu *__efi_runtime_data efi_psci_cpus;
+u32 __efi_runtime_data efi_psci_cpu_count;
 static struct efi_psci_state __efi_runtime_data *efi_psci_state;
 static struct efi_psci_state *efi_psci_state_phys;
 static __efi_runtime_data u64 efi_psci_trampoline_phys;
 
-static_assert(sizeof(struct efi_psci_cpu) == 40);
+static_assert(sizeof(struct efi_psci_cpu) == 48);
 static_assert(offsetof(struct efi_psci_cpu, stack_top) == 24);
 static_assert(offsetof(struct efi_arm_psci_handler_table, handler) == 8);
 static_assert(sizeof(struct efi_arm_psci_handler_table) == 144);
@@ -38,6 +40,23 @@ static_assert(sizeof(struct efi_psci_state) <= SZ_64K);
 
 void __weak __efi_runtime efi_psci_platform_secondary_init(u64 mpidr)
 {
+}
+
+efi_status_t __weak efi_psci_platform_cpu_init(ofnode node,
+					       struct efi_psci_cpu *cpu)
+{
+	return EFI_SUCCESS;
+}
+
+efi_status_t __weak efi_psci_platform_prepare(struct efi_psci_cpu *cpus,
+					      u32 count)
+{
+	return EFI_SUCCESS;
+}
+
+bool __weak __efi_runtime efi_psci_platform_supports(unsigned long fid)
+{
+	return true;
 }
 
 static bool __efi_runtime efi_psci_claim_cpu(struct efi_psci_cpu *cpu)
@@ -117,16 +136,20 @@ efi_psci_handler(unsigned long fid, unsigned long arg0, unsigned long arg1,
 		return ARM_PSCI_VER_1_0;
 	if (fid == ARM_PSCI_1_0_FN_PSCI_FEATURES) {
 		if (arg0 == ARM_PSCI_0_2_FN_PSCI_VERSION ||
-		    arg0 == ARM_PSCI_1_0_FN_PSCI_FEATURES ||
-		    arg0 == ARM_PSCI_0_2_FN64_CPU_SUSPEND ||
-		    arg0 == ARM_PSCI_0_2_FN_CPU_OFF ||
-		    arg0 == ARM_PSCI_0_2_FN64_CPU_ON ||
-		    arg0 == ARM_PSCI_0_2_FN64_AFFINITY_INFO ||
-		    arg0 == ARM_PSCI_0_2_FN_SYSTEM_OFF ||
-		    arg0 == ARM_PSCI_0_2_FN_SYSTEM_RESET)
+		    arg0 == ARM_PSCI_1_0_FN_PSCI_FEATURES)
+			return PSCI_RET_SUCCESS;
+		if ((arg0 == ARM_PSCI_0_2_FN64_CPU_SUSPEND ||
+		     arg0 == ARM_PSCI_0_2_FN_CPU_OFF ||
+		     arg0 == ARM_PSCI_0_2_FN64_CPU_ON ||
+		     arg0 == ARM_PSCI_0_2_FN64_AFFINITY_INFO ||
+		     arg0 == ARM_PSCI_0_2_FN_SYSTEM_OFF ||
+		     arg0 == ARM_PSCI_0_2_FN_SYSTEM_RESET) &&
+		    efi_psci_platform_supports(arg0))
 			return PSCI_RET_SUCCESS;
 		return PSCI_RET_NOT_SUPPORTED;
 	}
+	if (!efi_psci_platform_supports(fid))
+		return PSCI_RET_NOT_SUPPORTED;
 	if (fid == ARM_PSCI_0_2_FN64_CPU_ON)
 		return efi_psci_cpu_on(arg0, arg1, arg2);
 	if (fid == ARM_PSCI_0_2_FN64_CPU_SUSPEND ||
@@ -164,6 +187,15 @@ static void EFIAPI efi_psci_virtual_address_map(struct efi_event *event,
 	if (ret != EFI_SUCCESS)
 		goto err;
 
+	for (i = 0; i < efi_psci_state_phys->cpu_count; i++) {
+		if (!efi_psci_state_phys->cpus[i].release_slot)
+			continue;
+		ret = efi_convert_pointer(0,
+					  &efi_psci_state_phys->cpus[i].release_slot);
+		if (ret != EFI_SUCCESS)
+			goto err;
+	}
+
 	for (i = 0; i < systab.nr_tables; i++) {
 		if (!guidcmp(&systab.tables[i].guid, &psci_guid)) {
 			void **ptr = (void **)&systab.tables[i].table;
@@ -174,6 +206,9 @@ static void EFIAPI efi_psci_virtual_address_map(struct efi_event *event,
 			break;
 		}
 	}
+	ret = efi_convert_pointer(0, (void **)&efi_psci_cpus);
+	if (ret != EFI_SUCCESS)
+		goto err;
 	ret = efi_convert_pointer(0, (void **)&efi_psci_state);
 	if (ret == EFI_SUCCESS)
 		return;
@@ -187,10 +222,10 @@ efi_status_t efi_psci_register(void)
 	ofnode cpus = ofnode_path("/cpus");
 	ofnode node;
 	u64 stack_base, memory;
-	u64 mpidrs[EFI_PSCI_MAX_CPUS];
 	struct efi_psci_state *state;
 	struct efi_event *event;
 	u32 addr_cells, count = 0;
+	u32 i;
 	efi_status_t ret;
 
 	ret = efi_psci_platform_init();
@@ -203,24 +238,14 @@ efi_status_t efi_psci_register(void)
 		return EFI_NOT_FOUND;
 
 	ofnode_for_each_subnode(node, cpus) {
-		u64 mpidr;
-		u32 reg;
-
-		if (!ofnode_name_eq(node, "cpu"))
+		if (!ofnode_name_eq(node, "cpu") || !ofnode_is_enabled(node))
 			continue;
 		if (count == EFI_PSCI_MAX_CPUS) {
 			log_warning("EFI PSCI: more than %u CPUs; conduit disabled\n",
 				    EFI_PSCI_MAX_CPUS);
 			return EFI_UNSUPPORTED;
 		}
-		if (addr_cells == 1) {
-			if (ofnode_read_u32(node, "reg", &reg))
-				return EFI_DEVICE_ERROR;
-			mpidr = reg;
-		} else if (ofnode_read_u64(node, "reg", &mpidr)) {
-			return EFI_DEVICE_ERROR;
-		}
-		mpidrs[count++] = mpidr;
+		count++;
 	}
 	if (!count)
 		return EFI_NOT_FOUND;
@@ -236,14 +261,51 @@ efi_status_t efi_psci_register(void)
 	state->table.handler = efi_psci_handler;
 	state->cpu_count = count;
 	stack_base = memory + SZ_64K;
-	for (u32 i = 0; i < count; i++) {
-		state->cpus[i].mpidr = mpidrs[i];
+	i = 0;
+	ofnode_for_each_subnode(node, cpus) {
+		u64 mpidr;
+		u32 reg;
+
+		if (!ofnode_name_eq(node, "cpu") || !ofnode_is_enabled(node))
+			continue;
+		if (addr_cells == 1) {
+			if (ofnode_read_u32(node, "reg", &reg)) {
+				ret = EFI_DEVICE_ERROR;
+				goto err_free;
+			}
+			mpidr = reg;
+		} else if (ofnode_read_u64(node, "reg", &mpidr)) {
+			ret = EFI_DEVICE_ERROR;
+			goto err_free;
+		}
+		state->cpus[i].mpidr = mpidr;
 		state->cpus[i].stack_top = stack_base +
 					   (i + 1) * EFI_PSCI_STACK_SIZE;
+		ret = efi_psci_platform_cpu_init(node, &state->cpus[i]);
+		if (ret != EFI_SUCCESS)
+			goto err_free;
+		i++;
 	}
+	ret = efi_psci_platform_prepare(state->cpus, count);
+	if (ret != EFI_SUCCESS)
+		goto err_free;
+	if (!efi_psci_platform_supports(ARM_PSCI_0_2_FN64_CPU_SUSPEND))
+		state->table.features[1] = PSCI_RET_NOT_SUPPORTED;
+	if (!efi_psci_platform_supports(ARM_PSCI_0_2_FN_CPU_OFF))
+		state->table.features[2] = PSCI_RET_NOT_SUPPORTED;
+	if (!efi_psci_platform_supports(ARM_PSCI_0_2_FN64_CPU_ON))
+		state->table.features[3] = PSCI_RET_NOT_SUPPORTED;
+	if (!efi_psci_platform_supports(ARM_PSCI_0_2_FN64_AFFINITY_INFO))
+		state->table.features[4] = PSCI_RET_NOT_SUPPORTED;
+	if (!efi_psci_platform_supports(ARM_PSCI_0_2_FN_SYSTEM_OFF))
+		state->table.features[8] = PSCI_RET_NOT_SUPPORTED;
+	if (!efi_psci_platform_supports(ARM_PSCI_0_2_FN_SYSTEM_RESET))
+		state->table.features[9] = PSCI_RET_NOT_SUPPORTED;
 
 	efi_psci_state = state;
 	efi_psci_state_phys = state;
+	efi_psci_cpus = state->cpus;
+	efi_psci_cpu_count = count;
 	efi_psci_cpus_phys = state->cpus;
 	efi_psci_trampoline_phys = (uintptr_t)&efi_psci_trampoline;
 	ret = efi_install_configuration_table(&psci_guid, &state->table);
@@ -261,6 +323,8 @@ efi_status_t efi_psci_register(void)
 	efi_install_configuration_table(&psci_guid, NULL);
 err_free:
 	efi_psci_cpus_phys = NULL;
+	efi_psci_cpus = NULL;
+	efi_psci_cpu_count = 0;
 	efi_psci_state = NULL;
 	efi_psci_state_phys = NULL;
 	efi_free_pages(memory, EFI_PSCI_RUNTIME_SIZE / EFI_PAGE_SIZE);

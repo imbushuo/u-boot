@@ -6,6 +6,7 @@
 
 #include <mailbox.h>
 #include <malloc.h>
+#include <time.h>
 
 #include <asm/arch/rtkit.h>
 #include <linux/apple-mailbox.h>
@@ -13,6 +14,7 @@
 #include <linux/bitfield.h>
 #include <linux/bitops.h>
 #include <linux/errno.h>
+#include <linux/delay.h>
 #include <linux/sizes.h>
 #include <linux/types.h>
 
@@ -64,6 +66,21 @@
 #define APPLE_RTKIT_BUFFER_REQUEST_IOVA GENMASK(41, 0)
 
 #define TIMEOUT_1SEC_US 1000000
+
+static int rtkit_recv_boot(struct mbox_chan *chan, struct apple_mbox_msg *msg)
+{
+	ulong start = get_timer(0);
+	int ret;
+
+	do {
+		ret = mbox_recv(chan, msg, TIMEOUT_1SEC_US);
+		if (ret != -ENODATA)
+			return ret;
+		udelay(1);
+	} while (get_timer(start) < 1000);
+
+	return -ETIMEDOUT;
+}
 
 struct apple_rtkit {
 	struct mbox_chan *chan;
@@ -293,6 +310,7 @@ int apple_rtkit_boot(struct apple_rtkit *rtk)
 	int msgtype;
 	u64 reply;
 	u32 bitmap, base;
+	ulong start;
 	int i, ret;
 
 	/* Wakup the IOP. */
@@ -304,7 +322,7 @@ int apple_rtkit_boot(struct apple_rtkit *rtk)
 		return ret;
 
 	/* Wait for protocol version negotiation message. */
-	ret = mbox_recv(rtk->chan, &msg, TIMEOUT_1SEC_US);
+	ret = rtkit_recv_boot(rtk->chan, &msg);
 	if (ret < 0)
 		return ret;
 
@@ -346,7 +364,7 @@ int apple_rtkit_boot(struct apple_rtkit *rtk)
 
 wait_epmap:
 	/* Wait for endpoint map message. */
-	ret = mbox_recv(rtk->chan, &msg, TIMEOUT_1SEC_US);
+	ret = rtkit_recv_boot(rtk->chan, &msg);
 	if (ret < 0)
 		return ret;
 
@@ -412,8 +430,16 @@ wait_epmap:
 	rtk->iop_pwr = APPLE_RTKIT_PWR_STATE_SLEEP;
 	rtk->ap_pwr = APPLE_RTKIT_PWR_STATE_QUIESCED;
 
+	start = get_timer(0);
+
 	while (rtk->iop_pwr != APPLE_RTKIT_PWR_STATE_ON) {
+		if (get_timer(start) >= 1000)
+			return -ETIMEDOUT;
 		ret = apple_rtkit_poll(rtk, TIMEOUT_1SEC_US);
+		if (ret == -ENODATA) {
+			udelay(1);
+			continue;
+		}
 		if (ret < 0)
 			return ret;
 	}
@@ -424,6 +450,7 @@ wait_epmap:
 int apple_rtkit_set_ap_power(struct apple_rtkit *rtk, int pwrstate)
 {
 	struct apple_mbox_msg msg;
+	ulong start;
 	int ret;
 
 	if (rtk->ap_pwr == pwrstate)
@@ -436,8 +463,15 @@ int apple_rtkit_set_ap_power(struct apple_rtkit *rtk, int pwrstate)
 	if (ret < 0)
 		return ret;
 
+	start = get_timer(0);
 	while (rtk->ap_pwr != pwrstate) {
+		if (get_timer(start) >= 1000)
+			return -ETIMEDOUT;
 		ret = apple_rtkit_poll(rtk, TIMEOUT_1SEC_US);
+		if (ret == -ENODATA) {
+			udelay(1);
+			continue;
+		}
 		if (ret < 0)
 			return ret;
 	}

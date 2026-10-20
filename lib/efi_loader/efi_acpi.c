@@ -63,7 +63,8 @@ efi_status_t efi_acpi_register(void)
 		void *tab = bloblist_get_blob(BLOBLISTT_ACPI_TABLES, &size);
 
 		if (!tab)
-			return EFI_NOT_FOUND;
+			return IS_ENABLED(CONFIG_GENERATE_ACPI_TABLE) ?
+				EFI_NOT_FOUND : EFI_SUCCESS;
 		addr = map_to_sysmem(tab);
 
 		ret = efi_add_memory_map(addr, size,
@@ -71,6 +72,11 @@ efi_status_t efi_acpi_register(void)
 		if (ret != EFI_SUCCESS)
 			return ret;
 	} else {
+		if (!gd->arch.table_start && !IS_ENABLED(CONFIG_GENERATE_ACPI_TABLE))
+			return EFI_SUCCESS;
+		if (!gd->arch.table_start)
+			return EFI_NOT_FOUND;
+
 		/* Mark space used for tables */
 		start = ALIGN_DOWN(gd->arch.table_start, EFI_PAGE_MASK);
 		end = ALIGN(gd->arch.table_end, EFI_PAGE_MASK);

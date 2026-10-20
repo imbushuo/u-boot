@@ -56,6 +56,37 @@ can be found here:
 This uses ``u-boot-nodtb.bin`` as the device tree is passed to U-Boot
 by m1n1 after making some adjustments.
 
+UEFI hardware handoff
+---------------------
+
+``apple_m1_defconfig`` enables ACPI support, but does not generate or
+install ACPI tables yet. UEFI applications receive the device tree passed
+by m1n1; when ACPI tables become available, both descriptions can be
+published. The simple framebuffer provides a UEFI graphics output protocol
+with its actual pixel format and scanline stride.
+
+The experimental EFI PSCI configuration table requires m1n1's CPU
+spin-table handoff and an Apple watchdog. It supports starting secondary
+CPUs and restarting the machine. Shutdown is advertised only when the
+Apple SMC can be initialized. CPU suspend and CPU off are not supported;
+there is no native SMC/HVC PSCI firmware on this platform. The watchdog
+also backs UEFI ResetSystem after ExitBootServices.
+
+The standalone ``lib/efi_loader/pscitest.efi`` application tests the
+conduit by starting an offline CPU, confirming that it reached its entry
+point, and waiting 15 seconds before requesting reset or shutdown. Copy
+the application to a FAT partition and run, for example::
+
+    => load nvme 0:1 ${kernel_addr_r} /pscitest.efi
+    => setenv bootargs reset
+    => bootefi ${kernel_addr_r}
+
+Set ``bootargs`` to ``poweroff`` instead to request shutdown. U-Boot passes
+``bootargs`` as the EFI application's load options. The application reports
+an error if the selected power operation is unavailable; once a secondary
+CPU starts, it keeps the image resident if the operation returns instead
+of unloading code still in use by that CPU.
+
 Image installation
 ------------------
 

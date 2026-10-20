@@ -8,6 +8,7 @@
 #define LOG_CATEGORY LOGC_EFI
 
 #include <dm.h>
+#include <efi_device_path.h>
 #include <efi_loader.h>
 #include <log.h>
 #include <malloc.h>
@@ -54,6 +55,10 @@ static struct {
 		.length = sizeof(struct efi_device_path),
 	},
 };
+#endif
+
+#if CONFIG_IS_ENABLED(ARCH_APPLE) && CONFIG_IS_ENABLED(VIDEO_SIMPLE)
+extern U_BOOT_DRIVER(simple_video);
 #endif
 
 /**
@@ -212,7 +217,7 @@ static __always_inline efi_status_t gop_blt_int(struct efi_gop *this,
 		break;
 	case EFI_BLT_VIDEO_TO_BLT_BUFFER:
 	case EFI_BLT_VIDEO_TO_VIDEO:
-		swidth = gopobj->info.width;
+		swidth = gopobj->info.pixels_per_scanline;
 		if (!vid_bpp)
 			return EFI_UNSUPPORTED;
 		break;
@@ -225,7 +230,7 @@ static __always_inline efi_status_t gop_blt_int(struct efi_gop *this,
 	case EFI_BLT_BUFFER_TO_VIDEO:
 	case EFI_BLT_VIDEO_FILL:
 	case EFI_BLT_VIDEO_TO_VIDEO:
-		dwidth = gopobj->info.width;
+		dwidth = gopobj->info.pixels_per_scanline;
 		if (!vid_bpp)
 			return EFI_UNSUPPORTED;
 		break;
@@ -250,15 +255,18 @@ static __always_inline efi_status_t gop_blt_int(struct efi_gop *this,
 				break;
 			case EFI_BLT_VIDEO_TO_BLT_BUFFER:
 			case EFI_BLT_VIDEO_TO_VIDEO:
-				if (vid_bpp == 32)
+				if (vid_bpp == 32) {
 					pix = *(struct efi_gop_pixel *)&fb32[
 						slineoff + j + sx];
-				else if (vid_bpp == 30)
+					if (gopobj->info.pixel_format == EFI_GOT_RGBA8)
+						swap(pix.red, pix.blue);
+				} else if (vid_bpp == 30) {
 					pix = efi_vid30_to_blt_col(fb32[
 						slineoff + j + sx]);
-				else
+				} else {
 					pix = efi_vid16_to_blt_col(fb16[
 						slineoff + j + sx]);
+				}
 				break;
 			}
 
@@ -270,14 +278,17 @@ static __always_inline efi_status_t gop_blt_int(struct efi_gop *this,
 			case EFI_BLT_BUFFER_TO_VIDEO:
 			case EFI_BLT_VIDEO_FILL:
 			case EFI_BLT_VIDEO_TO_VIDEO:
-				if (vid_bpp == 32)
+				if (vid_bpp == 32) {
+					if (gopobj->info.pixel_format == EFI_GOT_RGBA8)
+						swap(pix.red, pix.blue);
 					fb32[dlineoff + j + dx] = *(u32 *)&pix;
-				else if (vid_bpp == 30)
+				} else if (vid_bpp == 30) {
 					fb32[dlineoff + j + dx] =
 						efi_blt_col_to_vid30(&pix);
-				else
+				} else {
 					fb16[dlineoff + j + dx] =
 						efi_blt_col_to_vid16(&pix);
+				}
 				break;
 			}
 		}
@@ -298,7 +309,8 @@ static efi_uintn_t gop_get_bpp(struct efi_gop *this)
 
 	switch (gopobj->bpix) {
 	case VIDEO_BPP32:
-		if (gopobj->info.pixel_format == EFI_GOT_BGRA8)
+		if (gopobj->info.pixel_format == EFI_GOT_BGRA8 ||
+		    gopobj->info.pixel_format == EFI_GOT_RGBA8)
 			vid_bpp = 32;
 		else
 			vid_bpp = 30;
@@ -516,6 +528,10 @@ efi_status_t efi_gop_register(void)
 	struct udevice *vdev;
 	struct video_priv *priv;
 	struct video_uc_plat *plat;
+#if CONFIG_IS_ENABLED(ARCH_APPLE) && CONFIG_IS_ENABLED(VIDEO_SIMPLE)
+	struct efi_device_path *dp;
+#endif
+	u32 bytes_per_pixel;
 
 	/* We only support a single video output device for now */
 	if (uclass_first_device_err(UCLASS_VIDEO, &vdev)) {
@@ -531,6 +547,7 @@ efi_status_t efi_gop_register(void)
 
 	plat = dev_get_uclass_plat(vdev);
 	fb_size = plat->size;
+	bytes_per_pixel = VNBYTES(bpix);
 
 	switch (bpix) {
 	case VIDEO_BPP16:
@@ -541,6 +558,23 @@ efi_status_t efi_gop_register(void)
 		debug("WARNING: Unsupported video mode\n");
 		return EFI_SUCCESS;
 	}
+	if (priv->line_length % bytes_per_pixel ||
+	    priv->line_length / bytes_per_pixel < col ||
+	    (u64)priv->line_length * row > fb_size) {
+		log_err("Invalid GOP framebuffer stride or size\n");
+		return EFI_DEVICE_ERROR;
+	}
+
+#if CONFIG_IS_ENABLED(ARCH_APPLE) && CONFIG_IS_ENABLED(VIDEO_SIMPLE)
+	if (vdev->driver == DM_DRIVER_GET(simple_video)) {
+		ret = efi_add_memory_map((uintptr_t)priv->fb, fb_size, EFI_MMAP_IO);
+		if (ret != EFI_SUCCESS) {
+			log_err("Failed to map Apple framebuffer for EFI: %lx\n",
+				(ulong)ret);
+			return ret;
+		}
+	}
+#endif
 
 	gopobj = calloc(1, sizeof(*gopobj));
 	if (!gopobj) {
@@ -568,6 +602,21 @@ efi_status_t efi_gop_register(void)
 		}
 	}
 #endif
+#if CONFIG_IS_ENABLED(ARCH_APPLE) && CONFIG_IS_ENABLED(VIDEO_SIMPLE)
+	if (vdev->driver == DM_DRIVER_GET(simple_video)) {
+		dp = efi_dp_from_mem(EFI_MMAP_IO, (uintptr_t)priv->fb, fb_size);
+		if (!dp) {
+			ret = EFI_OUT_OF_RESOURCES;
+			goto err_apple_path;
+		}
+		ret = efi_add_protocol(&gopobj->header, &efi_guid_device_path, dp);
+		if (ret != EFI_SUCCESS) {
+			efi_free_pool(dp);
+			log_err("Failed to add Apple GOP device path\n");
+			goto err_apple_path;
+		}
+	}
+#endif
 	gopobj->ops.query_mode = gop_query_mode;
 	gopobj->ops.set_mode = gop_set_mode;
 	gopobj->ops.blt = gop_blt;
@@ -583,14 +632,15 @@ efi_status_t efi_gop_register(void)
 	gopobj->info.version = 0;
 	gopobj->info.width = col;
 	gopobj->info.height = row;
-	if (bpix == VIDEO_BPP32)
-	{
+	if (bpix == VIDEO_BPP32) {
 		if (format == VIDEO_X2R10G10B10) {
 			gopobj->info.pixel_format = EFI_GOT_BITMASK;
 			gopobj->info.pixel_bitmask[0] = 0x3ff00000; /* red */
 			gopobj->info.pixel_bitmask[1] = 0x000ffc00; /* green */
 			gopobj->info.pixel_bitmask[2] = 0x000003ff; /* blue */
 			gopobj->info.pixel_bitmask[3] = 0xc0000000; /* reserved */
+		} else if (format == VIDEO_X8B8G8R8) {
+			gopobj->info.pixel_format = EFI_GOT_RGBA8;
 		} else {
 			gopobj->info.pixel_format = EFI_GOT_BGRA8;
 		}
@@ -600,10 +650,17 @@ efi_status_t efi_gop_register(void)
 		gopobj->info.pixel_bitmask[1] = 0x07e0; /* green */
 		gopobj->info.pixel_bitmask[2] = 0x001f; /* blue */
 	}
-	gopobj->info.pixels_per_scanline = col;
+	gopobj->info.pixels_per_scanline = priv->line_length / bytes_per_pixel;
 	gopobj->bpix = bpix;
 	gopobj->fb = priv->fb;
 	gopobj->vdev = vdev;
 
 	return EFI_SUCCESS;
+
+#if CONFIG_IS_ENABLED(ARCH_APPLE) && CONFIG_IS_ENABLED(VIDEO_SIMPLE)
+err_apple_path:
+	efi_delete_handle(&gopobj->header);
+	free(gopobj);
+	return ret;
+#endif
 }

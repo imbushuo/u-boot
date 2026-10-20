@@ -105,17 +105,18 @@ config EFI_HAVE_RUNTIME_RESET
 	bool "Reset runtime service"
 	default y
 	depends on ARCH_BCM283X || FSL_LAYERSCAPE || PSCI_RESET || \
-		   SANDBOX || SYSRESET_SBI || SYSRESET_X86
+		   SANDBOX || SYSRESET_SBI || SYSRESET_X86 || \
+		   (ARCH_APPLE && EFI_PSCI_CONDUIT)
 
 config EFI_PSCI_CONDUIT
 	bool "Expose PSCI calls through an EFI runtime configuration table"
-	depends on ARM64 && ARM_PSCI_FW
+	depends on ARM64 && (TARGET_QEMU_ARM_64BIT || ARCH_APPLE)
 	default y if TARGET_QEMU_ARM_64BIT
 	help
 	  Provide the experimental PSCI-via-UEFI configuration table. A
-	  platform must supply an EFI-runtime-safe PSCI backend. On QEMU
-	  virt this forwards calls to the PSCI firmware described by QEMU's
-	  device tree.
+	  platform must supply an EFI-runtime-safe power backend. QEMU virt
+	  forwards calls to native PSCI firmware; Apple silicon uses m1n1's
+	  spin-table handoff for secondary CPU startup.
 
 endmenu
 
@@ -434,11 +435,12 @@ config EFI_DEVICE_PATH_UTIL
 
 config EFI_DT_WITH_ACPI
 	bool "Expose device tree alongside ACPI tables"
-	depends on GENERATE_ACPI_TABLE && OF_CONTROL
+	depends on ACPI && OF_CONTROL
 	default y if TARGET_QEMU_ARM_64BIT
 	help
-	  Publish both the device tree and ACPI tables to UEFI applications,
-	  leaving the choice of hardware description to the OS loader.
+	  Publish the device tree alongside any available ACPI tables to UEFI
+	  applications, leaving the choice of hardware description to the OS
+	  loader. If no ACPI tables are available, only the tree is published.
 	  U-Boot continues to use its control device tree internally.
 
 	  This is not EBBR compliant, since EBBR requires a single hardware
