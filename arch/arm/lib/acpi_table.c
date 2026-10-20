@@ -151,7 +151,7 @@ int acpi_pptt_add_cache(struct acpi_ctx *ctx, const u32 flags,
 	return offset;
 }
 
-void *acpi_fill_madt(struct acpi_madt *madt, struct acpi_ctx *ctx)
+void *__weak acpi_fill_madt(struct acpi_madt *madt, struct acpi_ctx *ctx)
 {
 	uclass_probe_all(UCLASS_CPU);
 	uclass_probe_all(UCLASS_IRQ);

@@ -525,6 +525,14 @@ void *efi_get_configuration_table(const efi_guid_t *guid)
 	return NULL;
 }
 
+bool efi_acpi_enabled(void)
+{
+	static const efi_guid_t acpi_guid = EFI_ACPI_TABLE_GUID;
+
+	return CONFIG_IS_ENABLED(GENERATE_ACPI_TABLE) &&
+	       efi_get_configuration_table(&acpi_guid);
+}
+
 /**
  * efi_install_fdt() - install device tree
  *
@@ -545,14 +553,14 @@ void *efi_get_configuration_table(const efi_guid_t *guid)
 efi_status_t efi_install_fdt(void *fdt)
 {
 	struct bootm_headers img = { 0 };
+	bool acpi = efi_acpi_enabled();
 	efi_status_t ret;
 
 	/*
 	 * The EBBR spec requires that we have either an FDT or an ACPI table
 	 * but not both.
 	 */
-	if (CONFIG_IS_ENABLED(GENERATE_ACPI_TABLE) &&
-	    !CONFIG_IS_ENABLED(EFI_DT_WITH_ACPI) && fdt)
+	if (acpi && !CONFIG_IS_ENABLED(EFI_DT_WITH_ACPI) && fdt)
 		log_warning("Can't have ACPI table and device tree - ignoring DT.\n");
 
 	if (fdt == EFI_FDT_USE_INTERNAL) {
@@ -583,8 +591,7 @@ efi_status_t efi_install_fdt(void *fdt)
 		return EFI_LOAD_ERROR;
 	}
 
-	if (CONFIG_IS_ENABLED(GENERATE_ACPI_TABLE) &&
-	    !CONFIG_IS_ENABLED(EFI_DT_WITH_ACPI)) {
+	if (acpi && !CONFIG_IS_ENABLED(EFI_DT_WITH_ACPI)) {
 		/* Create memory reservations as indicated by the device tree */
 		efi_carve_out_dt_rsv(fdt);
 		return EFI_SUCCESS;

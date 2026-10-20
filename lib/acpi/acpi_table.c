@@ -22,10 +22,6 @@
 #include <linux/sizes.h>
 #include <linux/log2.h>
 
-enum {
-	TABLE_SIZE	= SZ_64K,
-};
-
 DECLARE_GLOBAL_DATA_PTR;
 
 /*
@@ -804,6 +800,7 @@ ACPI_WRITER(5iort, "IORT", acpi_write_iort, 0);
  */
 static int alloc_write_acpi_tables(void)
 {
+	u32 table_size;
 	u64 table_end;
 	void *addr;
 
@@ -819,15 +816,19 @@ static int alloc_write_acpi_tables(void)
 		return 0;
 	}
 
+	table_size = acpi_get_table_size();
+	if (!table_size)
+		return 0;
+
 	/* Align the table to a 4KB boundary to keep EFI happy */
-	addr = bloblist_add(BLOBLISTT_ACPI_TABLES, TABLE_SIZE,
+	addr = bloblist_add(BLOBLISTT_ACPI_TABLES, table_size,
 			    ilog2(SZ_4K));
 
 	if (!addr)
 		return log_msg_ret("mem", -ENOMEM);
 
 	gd->arch.table_start_high = virt_to_phys(addr);
-	gd->arch.table_end_high = gd->arch.table_start_high + TABLE_SIZE;
+	gd->arch.table_end_high = gd->arch.table_start_high + table_size;
 
 	table_end = write_acpi_tables(gd->arch.table_start_high);
 	if (!table_end) {
@@ -838,7 +839,7 @@ static int alloc_write_acpi_tables(void)
 	log_debug("- wrote 'acpi' to %lx, end %llx\n", gd->arch.table_start_high, table_end);
 	if (table_end > gd->arch.table_end_high) {
 		log_err("Out of space for configuration tables: need %llx, have %x\n",
-			table_end - gd->arch.table_start_high, TABLE_SIZE);
+			table_end - gd->arch.table_start_high, table_size);
 		return log_msg_ret("acpi", -ENOSPC);
 	}
 

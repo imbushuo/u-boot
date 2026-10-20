@@ -63,7 +63,8 @@ efi_status_t efi_acpi_register(void)
 		void *tab = bloblist_get_blob(BLOBLISTT_ACPI_TABLES, &size);
 
 		if (!tab)
-			return IS_ENABLED(CONFIG_GENERATE_ACPI_TABLE) ?
+			return IS_ENABLED(CONFIG_GENERATE_ACPI_TABLE) &&
+				acpi_get_table_size() ?
 				EFI_NOT_FOUND : EFI_SUCCESS;
 		addr = map_to_sysmem(tab);
 

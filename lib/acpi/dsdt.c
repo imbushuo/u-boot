@@ -10,6 +10,7 @@
 #include <acpi/acpi_table.h>
 #include <dm/acpi.h>
 #include <tables_csum.h>
+#include <linux/errno.h>
 #include <linux/string.h>
 
 /*
@@ -18,14 +19,23 @@
  */
 extern const unsigned char AmlCode[];
 
+const void *__weak acpi_get_dsdt(void)
+{
+	return AmlCode;
+}
+
 int acpi_write_dsdt(struct acpi_ctx *ctx, const struct acpi_writer *entry)
 {
+	const void *aml = acpi_get_dsdt();
 	const int thl = sizeof(struct acpi_table_header);
 	struct acpi_table_header *dsdt = ctx->current;
 	int aml_len;
 
+	if (!aml)
+		return -ENOENT;
+
 	/* Put the table header first */
-	memcpy(dsdt, &AmlCode, thl);
+	memcpy(dsdt, aml, thl);
 	acpi_inc(ctx, thl);
 	log_debug("DSDT starts at %p, hdr ends at %p\n", dsdt, ctx->current);
 
@@ -42,12 +52,13 @@ int acpi_write_dsdt(struct acpi_ctx *ctx, const struct acpi_writer *entry)
 			  (ulong)(ctx->current - base), ctx->current);
 		log_debug("Copy AML code size %x to %p\n", aml_len,
 			  ctx->current);
-		memcpy(ctx->current, AmlCode + thl, aml_len);
+		memcpy(ctx->current, aml + thl, aml_len);
 		acpi_inc(ctx, aml_len);
 	}
 
 	ctx->dsdt = dsdt;
 	dsdt->length = ctx->current - (void *)dsdt;
+	acpi_update_checksum(dsdt);
 	log_debug("Updated DSDT length to %x\n", dsdt->length);
 
 	return 0;

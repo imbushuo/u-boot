@@ -86,11 +86,38 @@ by m1n1 after making some adjustments.
 UEFI hardware handoff
 ---------------------
 
-``apple_m1_defconfig`` enables ACPI support, but does not generate or
-install ACPI tables yet. UEFI applications receive the device tree passed
-by m1n1; when ACPI tables become available, both descriptions can be
-published. The simple framebuffer provides a UEFI graphics output protocol
+``apple_m1_defconfig`` generates ACPI tables automatically during U-Boot
+startup for registered models. The root ``compatible`` list in the device
+tree supplied by m1n1 selects the table set, in compatible-list order.
+Unregistered models generate no ACPI tables and retain device-tree-only
+handoff. On registered models, UEFI applications receive both ACPI and the
+device tree. The simple framebuffer provides a UEFI graphics output protocol
 with its actual pixel format and scanline stride.
+
+Apple ACPI sources live in ``arch/arm/mach-apple/acpi/``. Each model registers
+an ``APPLE_ACPI_MODEL`` with its exact compatible, compiled DSDT, table-space
+budget and C table callbacks. Add a model subdirectory to its Makefile to
+include a new table set. Write AML tables in ASL (``dsdt.asl``); the build uses
+``iasl`` from ACPICA to compile them. Non-AML tables are ordinary C writers
+using the structures in ``include/acpi/acpi_table.h``. This allows U-Boot to
+fill physical addresses and checksums rather than maintaining binary files
+or disassembler-generated data-table DSL.
+
+The model's ``table_size`` reserves the complete set, including root tables,
+AML and alignment. Allocations are page-aligned in the bloblist and published
+as ``EFI_ACPI_RECLAIM_MEMORY``. The initial model reserves 64 KiB; the default
+128 KiB relocated bloblist accommodates this plus its alignment and metadata.
+Increase ``CONFIG_BLOBLIST_SIZE_RELOC`` if future model budgets require more
+space. Use ``acpi list -c`` to inspect the generated tables and checksums.
+
+The initial ``apple,j413`` set describes the MacBook Air (13-inch, M2, 2022).
+It contains DSDT, FADT, MADT, GTDT, CSRT and DBG2, rooted through an XSDT.
+The DSDT has a CPU container, eight CPU devices and an S5L debug UART at
+``0x235200000`` (``\\_SB.UART``, placeholder HID ``APP0001``). The MADT contains
+CPU-interface stubs with zero GIC addresses: it does not claim a real GIC.
+The AIC2 at ``0x23b0c0000`` is instead described by a stub CSRT interrupt
+controller resource. These are bring-up tables, not a complete hardware
+description, and require operating-system support for Apple-specific devices.
 
 The experimental EFI PSCI configuration table requires m1n1's CPU
 spin-table handoff and an Apple watchdog. It supports starting secondary
@@ -101,6 +128,10 @@ untouched during normal boot so that the operating system can take ownership.
 CPU suspend and CPU off are not supported; there is no native SMC/HVC PSCI
 firmware on this platform. The watchdog also backs UEFI ResetSystem after
 ExitBootServices.
+
+When the EFI PSCI configuration table is installed, U-Boot marks the FADT's
+ARM boot flags with ``ACPI_ARM_PSCI_USE_EFI`` (reserved bit 2) and updates its
+checksum. This experimental conduit must not be treated as native SMC/HVC PSCI.
 
 With ``CONFIG_CMD_BOOTEFI_PSCITEST``, U-Boot embeds the EFI PSCI selftest.
 At the U-Boot prompt, run either::

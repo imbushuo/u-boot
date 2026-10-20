@@ -17,8 +17,13 @@
 #include <dm/acpi.h>
 
 #define RSDP_SIG		"RSD PTR "	/* RSDP pointer signature */
+#ifdef CONFIG_ARCH_APPLE
+#define OEM_ID			"AAPL  "
+#define OEM_TABLE_ID		"AAPLUBOT"
+#else
 #define OEM_ID			"U-BOOT"	/* U-Boot */
 #define OEM_TABLE_ID		"U-BOOTBL"	/* U-Boot Table */
+#endif
 
 /**
  * define ACPI_CREATOR_ID - ACPI creator ID
@@ -547,6 +552,9 @@ struct acpi_csrt_descriptor {
 	u32 uid;
 };
 
+#define ACPI_CSRT_TYPE_INTERRUPT		1
+#define ACPI_CSRT_INTERRUPT_CONTROLLER	1
+
 /**
  * struct acpi_csrt_shared_info - shared info for Intel tangier
  *
@@ -676,6 +684,7 @@ struct __packed acpi_dmar {
 #define ACPI_DBG2_ARM_DCC		0x000F
 #define ACPI_DBG2_BCM2835		0x0010
 #define ACPI_DBG2_16550_WITH_GAS	0x0012 /* 16550-compatible UART with GAS */
+#define ACPI_DBG2_APPLE_S5L	0x0016
 
 #define ACPI_DBG2_1394_STANDARD		0x0000
 
@@ -757,6 +766,7 @@ struct acpi_gtdt {
 } __packed;
 
 #define GTDT_FLAG_INT_ACTIVE_LOW	BIT(1)
+#define GTDT_FLAG_ALWAYS_ON	BIT(2)
 
 /**
  * struct acpi_bgrt -  Boot Graphics Resource Table (BGRT)
@@ -999,6 +1009,28 @@ enum acpi_tables {
  * Return: version number that U-Boot generates
  */
 int acpi_get_table_revision(enum acpi_tables table);
+
+/**
+ * acpi_get_table_size() - Get the platform's ACPI allocation size
+ *
+ * Return: size in bytes, or 0 if this platform has no ACPI tables
+ */
+u32 acpi_get_table_size(void);
+
+/**
+ * acpi_get_dsdt() - Get the platform's compiled DSDT
+ *
+ * Return: DSDT including its ACPI header, or NULL if unavailable
+ */
+const void *acpi_get_dsdt(void);
+
+/**
+ * acpi_table_enabled() - Check whether a table writer is used by this platform
+ *
+ * @entry: Table writer to check
+ * Return: true to run the writer
+ */
+bool acpi_table_enabled(const struct acpi_writer *entry);
 
 /**
  * acpi_create_dmar() - Create a DMA Remapping Reporting (DMAR) table

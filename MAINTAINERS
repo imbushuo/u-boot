@@ -181,6 +181,7 @@ F:	drivers/power/domain/apple-pmgr.c
 F:	drivers/spi/apple_spi.c
 F:	drivers/usb/host/xhci-pci-asmedia.c
 F:	drivers/watchdog/apple_wdt.c
+F:	test/py/tests/test_apple_acpi.py
 
 ARM
 M:	Tom Rini <trini@konsulko.com>

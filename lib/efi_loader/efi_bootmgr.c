@@ -1307,6 +1307,7 @@ efi_status_t efi_bootmgr_run(void *fdt)
 	efi_status_t ret;
 	void *fdt_lo, *fdt_distro = NULL;
 	efi_uintn_t fdt_size;
+	bool use_fdt;
 
 	/* Initialize EFI drivers */
 	ret = efi_init_obj_list();
@@ -1319,8 +1320,8 @@ efi_status_t efi_bootmgr_run(void *fdt)
 		return ret;
 	}
 
-	if (!IS_ENABLED(CONFIG_GENERATE_ACPI_TABLE) ||
-	    IS_ENABLED(CONFIG_EFI_DT_WITH_ACPI)) {
+	use_fdt = !efi_acpi_enabled() || IS_ENABLED(CONFIG_EFI_DT_WITH_ACPI);
+	if (use_fdt) {
 		ret = load_fdt_from_load_option(&fdt_lo);
 		if (ret != EFI_SUCCESS)
 			return ret;
@@ -1338,8 +1339,7 @@ efi_status_t efi_bootmgr_run(void *fdt)
 	 */
 	ret = efi_install_fdt(fdt);
 
-	if (!IS_ENABLED(CONFIG_GENERATE_ACPI_TABLE) ||
-	    IS_ENABLED(CONFIG_EFI_DT_WITH_ACPI)) {
+	if (use_fdt) {
 		free(fdt_lo);
 		if (fdt_distro)
 			efi_free_pages((uintptr_t)fdt_distro,

@@ -14,8 +14,19 @@
 #include <asm/global_data.h>
 #include <dm/acpi.h>
 #include <linux/errno.h>
+#include <linux/sizes.h>
 
 DECLARE_GLOBAL_DATA_PTR;
+
+u32 __weak acpi_get_table_size(void)
+{
+	return SZ_64K;
+}
+
+bool __weak acpi_table_enabled(const struct acpi_writer *entry)
+{
+	return true;
+}
 
 int acpi_write_one(struct acpi_ctx *ctx, const struct acpi_writer *entry)
 {
@@ -58,6 +69,8 @@ static int acpi_write_all(struct acpi_ctx *ctx)
 	int ret;
 
 	for (entry = writer; entry != writer + n_ents; entry++) {
+		if (!acpi_table_enabled(entry))
+			continue;
 		ret = acpi_write_one(ctx, entry);
 		if (ret && ret != -ENOENT)
 			return log_msg_ret("one", ret);
