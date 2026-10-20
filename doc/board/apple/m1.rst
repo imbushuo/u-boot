@@ -36,9 +36,11 @@ Building U-Boot
     $ make apple_m1_defconfig
     $ make
 
-This will build ``u-boot-nodtb.bin`` as well as devices trees for some
-of the supported machines.  These device trees can be found in the
-``arch/arm/dts`` subdirectory of your build.
+This builds ``u-boot-nodtb.bin`` and all upstream Apple device trees in
+``dts/upstream/src/arm64/apple/``. The trees are separate from the U-Boot
+binary because m1n1 supplies the selected tree at boot. ``make dtbs`` also
+builds the complete Apple set without rebuilding U-Boot. Not every Apple
+device with an upstream tree is supported by this U-Boot configuration.
 
 Image creation
 --------------
@@ -51,7 +53,8 @@ can be found here:
 
 .. code-block:: bash
 
-    $ cat m1n1.macho t8103-j274.dtb u-boot-nodtb.bin > u-boot.macho
+    $ cat m1n1.macho dts/upstream/src/arm64/apple/t8103-j274.dtb \
+        u-boot-nodtb.bin > u-boot.macho
 
 This uses ``u-boot-nodtb.bin`` as the device tree is passed to U-Boot
 by m1n1 after making some adjustments.
@@ -72,20 +75,19 @@ Apple SMC can be initialized. CPU suspend and CPU off are not supported;
 there is no native SMC/HVC PSCI firmware on this platform. The watchdog
 also backs UEFI ResetSystem after ExitBootServices.
 
-The standalone ``lib/efi_loader/pscitest.efi`` application tests the
-conduit by starting an offline CPU, confirming that it reached its entry
-point, and waiting 15 seconds before requesting reset or shutdown. Copy
-the application to a FAT partition and run, for example::
+With ``CONFIG_CMD_BOOTEFI_PSCITEST``, U-Boot embeds the EFI PSCI selftest.
+At the U-Boot prompt, run either::
 
-    => load nvme 0:1 ${kernel_addr_r} /pscitest.efi
-    => setenv bootargs reset
-    => bootefi ${kernel_addr_r}
+    => bootefi pscitest reset
+    => bootefi pscitest poweroff
 
-Set ``bootargs`` to ``poweroff`` instead to request shutdown. U-Boot passes
-``bootargs`` as the EFI application's load options. The application reports
-an error if the selected power operation is unavailable; once a secondary
-CPU starts, it keeps the image resident if the operation returns instead
-of unloading code still in use by that CPU.
+The test starts an offline CPU, confirms it reached its entry point, and
+waits 15 seconds before requesting the selected power action. No disk or
+``bootargs`` changes are needed. The standalone
+``lib/efi_loader/pscitest.efi`` is still built for testing from an external
+EFI loader. If the selected action is unavailable, the application returns
+an error; once a secondary CPU has started, it keeps the image resident if
+the power action returns instead of unloading code still in use.
 
 Image installation
 ------------------

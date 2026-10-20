@@ -521,6 +521,15 @@ config CMD_BOOTEFI_HELLO
 	  for testing that EFI is working at a basic level, and for bringing
 	  up EFI support on a new architecture.
 
+config CMD_BOOTEFI_PSCITEST
+	bool "Allow booting the EFI PSCI power selftest"
+	depends on CMD_BOOTEFI_BINARY && EFI_PSCI_CONDUIT && ARM64
+	default y if ARCH_APPLE || TARGET_QEMU_ARM_64BIT
+	help
+	  Embed the PSCI selftest EFI application in U-Boot. Run it using
+	  'bootefi pscitest reset' or 'bootefi pscitest poweroff' to start a
+	  secondary CPU and request the selected power action after 15 seconds.
+
 source "lib/efi_selftest/Kconfig"
 endif
 

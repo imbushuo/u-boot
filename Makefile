@@ -1437,7 +1437,13 @@ endif
 	$(call cmd,ofcheck,$(KCONFIG_CONFIG))
 
 PHONY += dtbs dtbs_check
+ifeq ($(CONFIG_ARCH_APPLE)$(CONFIG_OF_UPSTREAM_BUILD_VENDOR),yy)
+all: dtbs
+dtbs: dtbs_prepare scripts_dtc
+	$(Q)$(MAKE) $(build)=dts/upstream/src/arm64 dtbs
+else
 dtbs: dts/dt.dtb
+endif
 dts/dt.dtb: dtbs_prepare u-boot
 	$(Q)$(MAKE) $(build)=dts dtbs
 

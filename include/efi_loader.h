@@ -625,6 +625,8 @@ efi_status_t efi_install_initrd(void *initrd, size_t initd_sz);
 efi_status_t do_bootefi_exec(efi_handle_t handle, void *load_options);
 /* Run loaded UEFI image with given fdt */
 efi_status_t efi_binary_run(void *image, size_t size, void *fdt, void *initrd, size_t initrd_sz);
+efi_status_t efi_binary_run_with_options(void *image, size_t size, void *fdt,
+					 const u16 *options);
 
 /**
  * efi_bootflow_run() - Run a bootflow containing an EFI application

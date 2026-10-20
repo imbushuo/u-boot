@@ -147,6 +147,27 @@ static int do_bootefi(struct cmd_tbl *cmdtp, int flag, int argc,
 	if (ret != EFI_SUCCESS)
 		return CMD_RET_FAILURE;
 
+	if (IS_ENABLED(CONFIG_CMD_BOOTEFI_PSCITEST) &&
+	    !strcmp(argv[1], "pscitest")) {
+		const u16 *options;
+
+		if (argc != 3)
+			return CMD_RET_USAGE;
+		if (!strcmp(argv[2], "reset"))
+			options = u"reset";
+		else if (!strcmp(argv[2], "poweroff"))
+			options = u"poweroff";
+		else
+			return CMD_RET_USAGE;
+
+		efi_clear_bootdev();
+		ret = efi_binary_run_with_options(__efi_pscitest_begin,
+						  __efi_pscitest_end -
+						  __efi_pscitest_begin,
+						  EFI_FDT_USE_INTERNAL, options);
+		return ret == EFI_SUCCESS ? CMD_RET_SUCCESS : CMD_RET_FAILURE;
+	}
+
 	if (argc > 2) {
 		ulong rd_addr = 0;
 		char *end = strchr(argv[2], ':');
@@ -240,6 +261,10 @@ U_BOOT_LONGHELP(bootefi,
 #ifdef CONFIG_CMD_BOOTEFI_HELLO
 	"bootefi hello\n"
 	"  - boot a sample Hello World application stored within U-Boot\n"
+#endif
+#ifdef CONFIG_CMD_BOOTEFI_PSCITEST
+	"bootefi pscitest <reset|poweroff>\n"
+	"  - start a secondary CPU, then reset or power off after 15 seconds\n"
 #endif
 #ifdef CONFIG_CMD_BOOTEFI_SELFTEST
 	"bootefi selftest [fdt address]\n"

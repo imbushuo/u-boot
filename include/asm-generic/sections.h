@@ -27,6 +27,8 @@ extern char __start_rodata[], __end_rodata[];
 extern char __start_data[], __end_data[];
 extern char __efi_helloworld_begin[];
 extern char __efi_helloworld_end[];
+extern char __efi_pscitest_begin[];
+extern char __efi_pscitest_end[];
 extern char __efi_var_file_begin[];
 extern char __efi_var_file_end[];
 extern char __efi_capsule_sig_begin[];

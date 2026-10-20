@@ -27,6 +27,7 @@ apps-$(CONFIG_BOOTEFI_TESTAPP_COMPILE) += testapp
 apps-y += dbginfodump
 
 obj-$(CONFIG_CMD_BOOTEFI_HELLO) += helloworld_efi.o
+obj-$(CONFIG_CMD_BOOTEFI_PSCITEST) += pscitest_efi.o
 obj-$(CONFIG_EFI_BOOTMGR) += efi_bootmgr.o
 obj-$(CONFIG_EFI_BINARY_EXEC) += efi_bootbin.o
 obj-y += efi_boottime.o

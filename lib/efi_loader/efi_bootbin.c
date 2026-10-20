@@ -164,11 +164,13 @@ void efi_set_bootdev(const char *dev, const char *devnr, const char *path,
  * @source_size:	size of the UEFI image
  * @dp_dev:		EFI device-path
  * @dp_img:		EFI image-path
+ * @options:		explicit UTF-16 options, or NULL to use bootargs
  * Return:		status code
  */
 static efi_status_t efi_run_image(void *source_buffer, efi_uintn_t source_size,
 				  struct efi_device_path *dp_dev,
-				  struct efi_device_path *dp_img)
+				  struct efi_device_path *dp_img,
+				  const u16 *options)
 {
 	efi_handle_t handle;
 	struct efi_device_path *msg_path, *file_path;
@@ -187,8 +189,22 @@ static efi_status_t efi_run_image(void *source_buffer, efi_uintn_t source_size,
 		goto out;
 	}
 
-	/* Transfer environment variable as load options */
-	ret = efi_env_set_load_options(handle, "bootargs", &load_options);
+	if (options) {
+		size_t length = u16_strsize(options);
+
+		load_options = malloc(length);
+		if (!load_options) {
+			ret = EFI_OUT_OF_RESOURCES;
+			goto out;
+		}
+		memcpy(load_options, options, length);
+		ret = efi_set_load_options(handle, length, load_options);
+		if (ret != EFI_SUCCESS)
+			free(load_options);
+	} else {
+		/* Transfer environment variable as load options */
+		ret = efi_env_set_load_options(handle, "bootargs", &load_options);
+	}
 	if (ret != EFI_SUCCESS)
 		goto out;
 
@@ -209,6 +225,7 @@ out:
  * @initrd_sz:	initrd size
  * @dp_dev:	EFI device-path
  * @dp_img:	EFI image-path
+ * @options:	explicit UTF-16 options, or NULL to use bootargs
  *
  * Execute an EFI binary image loaded at @image.
  * @size may be zero if the binary is loaded with U-Boot load command.
@@ -218,7 +235,8 @@ out:
 static efi_status_t efi_binary_run_dp(void *image, size_t size, void *fdt,
 				      void *initrd, size_t initrd_sz,
 				      struct efi_device_path *dp_dev,
-				      struct efi_device_path *dp_img)
+				      struct efi_device_path *dp_img,
+				      const u16 *options)
 {
 	efi_status_t ret;
 
@@ -235,24 +253,27 @@ static efi_status_t efi_binary_run_dp(void *image, size_t size, void *fdt,
 	if (ret != EFI_SUCCESS)
 		return ret;
 
-	return efi_run_image(image, size, dp_dev, dp_img);
+	return efi_run_image(image, size, dp_dev, dp_img, options);
 }
 
 /**
- * efi_binary_run() - run loaded UEFI image
+ * efi_binary_run_internal() - run loaded UEFI image
  *
  * @image:	memory address of the UEFI image
  * @size:	size of the UEFI image
  * @fdt:	device-tree
  * @initrd:	initrd
  * @initrd_sz:	initrd size
+ * @options:	explicit UTF-16 options, or NULL to use bootargs
  *
  * Execute an EFI binary image loaded at @image.
  * @size may be zero if the binary is loaded with U-Boot load command.
  *
  * Return:	status code
  */
-efi_status_t efi_binary_run(void *image, size_t size, void *fdt, void *initrd, size_t initrd_sz)
+static efi_status_t efi_binary_run_internal(void *image, size_t size, void *fdt,
+					    void *initrd, size_t initrd_sz,
+					    const u16 *options)
 {
 	efi_handle_t mem_handle = NULL;
 	struct efi_device_path *file_path = NULL;
@@ -283,8 +304,8 @@ efi_status_t efi_binary_run(void *image, size_t size, void *fdt, void *initrd, s
 		log_debug("Loaded from disk\n");
 	}
 
-	ret = efi_binary_run_dp(image, size, fdt, initrd, initrd_sz, bootefi_device_path,
-				bootefi_image_path);
+	ret = efi_binary_run_dp(image, size, fdt, initrd, initrd_sz,
+				bootefi_device_path, bootefi_image_path, options);
 out:
 	if (mem_handle) {
 		efi_status_t r;
@@ -297,6 +318,18 @@ out:
 	efi_free_pool(file_path);
 
 	return ret;
+}
+
+efi_status_t efi_binary_run(void *image, size_t size, void *fdt, void *initrd,
+			    size_t initrd_sz)
+{
+	return efi_binary_run_internal(image, size, fdt, initrd, initrd_sz, NULL);
+}
+
+efi_status_t efi_binary_run_with_options(void *image, size_t size, void *fdt,
+					 const u16 *options)
+{
+	return efi_binary_run_internal(image, size, fdt, NULL, 0, options);
 }
 
 /**
@@ -365,7 +398,8 @@ efi_status_t efi_bootflow_run(struct bootflow *bflow)
 		log_debug("Booting with external fdt\n");
 		fdt = map_sysmem(bflow->fdt_addr, 0);
 	}
-	ret = efi_binary_run_dp(bflow->buf, bflow->size, fdt, NULL, 0, device, image);
+	ret = efi_binary_run_dp(bflow->buf, bflow->size, fdt, NULL, 0,
+				device, image, NULL);
 
 	return ret;
 }
