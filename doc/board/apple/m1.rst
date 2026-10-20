@@ -95,9 +95,12 @@ with its actual pixel format and scanline stride.
 The experimental EFI PSCI configuration table requires m1n1's CPU
 spin-table handoff and an Apple watchdog. It supports starting secondary
 CPUs and restarting the machine. Shutdown is advertised only when the
-Apple SMC can be initialized. CPU suspend and CPU off are not supported;
-there is no native SMC/HVC PSCI firmware on this platform. The watchdog
-also backs UEFI ResetSystem after ExitBootServices.
+Apple SMC registers and SRAM are available. SMC protocol initialization
+is deferred until shutdown is requested, leaving the firmware and mailbox
+untouched during normal boot so that the operating system can take ownership.
+CPU suspend and CPU off are not supported; there is no native SMC/HVC PSCI
+firmware on this platform. The watchdog also backs UEFI ResetSystem after
+ExitBootServices.
 
 With ``CONFIG_CMD_BOOTEFI_PSCITEST``, U-Boot embeds the EFI PSCI selftest.
 At the U-Boot prompt, run either::

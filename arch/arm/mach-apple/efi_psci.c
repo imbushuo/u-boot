@@ -5,19 +5,14 @@
 
 #include <dm.h>
 #include <dm/ofnode.h>
-#include <dm/uclass.h>
 #include <efi_psci.h>
 #include <log.h>
 #include <mailbox.h>
-#include <malloc.h>
-#include <time.h>
 #include <asm/io.h>
 #include <asm/arch/rtkit.h>
 #include <asm/psci.h>
 #include <asm/system.h>
-#include <linux/apple-mailbox.h>
-#include <linux/delay.h>
-#include <linux/errno.h>
+#include <linux/bitfield.h>
 #include <linux/psci.h>
 #include <linux/sizes.h>
 
@@ -40,37 +35,32 @@
 #define APPLE_SMC_OFFW		0x6f666677
 #define APPLE_SMC_OFF1		0x6f666631
 
+#define APPLE_RTKIT_MGMT_TYPE	GENMASK_ULL(59, 52)
+#define APPLE_RTKIT_HELLO		1
+#define APPLE_RTKIT_HELLO_REPLY	2
+#define APPLE_RTKIT_START_EP	5
+#define APPLE_RTKIT_IOP_POWER	6
+#define APPLE_RTKIT_IOP_POWER_ACK	7
+#define APPLE_RTKIT_EPMAP		8
+#define APPLE_RTKIT_AP_POWER	11
+#define APPLE_RTKIT_EPMAP_LAST	BIT_ULL(51)
+#define APPLE_RTKIT_EPMAP_BASE	GENMASK_ULL(34, 32)
+#define APPLE_RTKIT_POWER_INIT	0x220
+
 static void __efi_runtime_data *apple_wdt_base;
+static void __efi_runtime_data *apple_smc_asc;
 static void __efi_runtime_data *apple_smc_mbox;
-static void __efi_runtime_data *apple_smc_shmem;
+static void __efi_runtime_data *apple_smc_sram;
+static u64 __efi_runtime_data apple_smc_sram_phys;
+static u64 __efi_runtime_data apple_smc_sram_size;
 
-static int apple_psci_rtkit_shmem(void *cookie, struct apple_rtkit_buffer *buf)
-{
-	if (buf->is_mapped)
-		return 0;
-
-	buf->buffer = efi_alloc_aligned_pages(ALIGN(buf->size, SZ_16K),
-					      EFI_RESERVED_MEMORY_TYPE,
-					      SZ_16K);
-	if (!buf->buffer)
-		return -ENOMEM;
-	buf->dva = (uintptr_t)buf->buffer;
-	return 0;
-}
-
-static efi_status_t apple_psci_smc_init(void)
+static efi_status_t apple_psci_smc_setup(void)
 {
 	struct ofnode_phandle_args args;
 	ofnode smc = ofnode_by_compatible(ofnode_null(), "apple,smc");
-	struct apple_rtkit *rtk;
-	struct apple_mbox_msg msg = { .msg0 = 0x17, .msg1 = APPLE_SMC_ENDPOINT };
-	struct mbox_chan chan = {};
-	struct udevice *mbox;
 	fdt_addr_t smc_addr, mbox_addr, sram_addr;
 	fdt_size_t smc_size, mbox_size, sram_size;
-	ulong start;
 	efi_status_t ret;
-	int err;
 
 	if (!ofnode_valid(smc) || !ofnode_is_enabled(smc) ||
 	    ofnode_parse_phandle_with_args(smc, "mboxes", "#mbox-cells",
@@ -85,61 +75,25 @@ static efi_status_t apple_psci_smc_init(void)
 	    mbox_size < APPLE_MBOX_I2A_MSG1 + sizeof(u64))
 		return EFI_UNSUPPORTED;
 
-	err = uclass_get_device_by_ofnode(UCLASS_MAILBOX, args.node, &mbox);
-	if (err)
-		return EFI_UNSUPPORTED;
-	chan.dev = mbox;
-	chan.id = 0;
-
-	writel(readl((void *)(uintptr_t)smc_addr + 0x44) | BIT(4),
-	       (void *)(uintptr_t)smc_addr + 0x44);
-	rtk = apple_rtkit_init(&chan, NULL, apple_psci_rtkit_shmem, NULL);
-	if (!rtk)
-		return EFI_OUT_OF_RESOURCES;
-	err = apple_rtkit_boot(rtk);
-	if (!err)
-		err = apple_rtkit_set_ap_power(rtk, APPLE_RTKIT_PWR_STATE_ON);
-	if (!err)
-		err = mbox_send(&chan, &msg);
-	if (err)
-		goto out;
-
-	start = get_timer(0);
-	do {
-		err = mbox_recv(&chan, &msg, 0);
-		if (err == -ENODATA) {
-			udelay(1);
-			continue;
-		}
-		if (err)
-			break;
-		if (msg.msg1 == APPLE_SMC_ENDPOINT)
-			break;
-	} while (get_timer(start) < 1000);
-	if (err || msg.msg1 != APPLE_SMC_ENDPOINT ||
-	    msg.msg0 < sram_addr ||
-	    msg.msg0 - sram_addr > sram_size - sizeof(u32)) {
-		err = -ENODEV;
-		goto out;
-	}
-
+	ret = efi_add_memory_map(ALIGN_DOWN(smc_addr, SZ_64K),
+				 ALIGN(smc_addr + smc_size, SZ_64K) -
+				 ALIGN_DOWN(smc_addr, SZ_64K), EFI_MMAP_IO);
+	if (ret != EFI_SUCCESS)
+		return ret;
 	ret = efi_add_memory_map(ALIGN_DOWN(mbox_addr, SZ_64K),
 				 ALIGN(mbox_addr + mbox_size, SZ_64K) -
 				 ALIGN_DOWN(mbox_addr, SZ_64K), EFI_MMAP_IO);
 	if (ret != EFI_SUCCESS)
-		goto out;
+		return ret;
 	ret = efi_add_memory_map(ALIGN_DOWN(sram_addr, SZ_64K),
 				 ALIGN(sram_addr + sram_size, SZ_64K) -
 				 ALIGN_DOWN(sram_addr, SZ_64K), EFI_MMAP_IO);
 	if (ret == EFI_SUCCESS) {
+		apple_smc_asc = (void *)(uintptr_t)smc_addr;
 		apple_smc_mbox = (void *)(uintptr_t)mbox_addr;
-		apple_smc_shmem = (void *)(uintptr_t)msg.msg0;
-	}
-out:
-	free(rtk);
-	if (err) {
-		log_warning("EFI PSCI: Apple SMC initialization failed: %d\n", err);
-		return EFI_UNSUPPORTED;
+		apple_smc_sram = (void *)(uintptr_t)sram_addr;
+		apple_smc_sram_phys = sram_addr;
+		apple_smc_sram_size = sram_size;
 	}
 	return ret;
 }
@@ -155,13 +109,17 @@ static void EFIAPI apple_psci_virtual_address_map(struct efi_event *event,
 			(ulong)ret);
 	if (!apple_smc_mbox)
 		return;
+	ret = efi_convert_pointer(0, &apple_smc_asc);
+	if (ret != EFI_SUCCESS)
+		log_err("Apple SMC ASC pointer conversion failed: %lx\n",
+			(ulong)ret);
 	ret = efi_convert_pointer(0, &apple_smc_mbox);
 	if (ret != EFI_SUCCESS)
 		log_err("Apple SMC mailbox pointer conversion failed: %lx\n",
 			(ulong)ret);
-	ret = efi_convert_pointer(0, &apple_smc_shmem);
+	ret = efi_convert_pointer(0, &apple_smc_sram);
 	if (ret != EFI_SUCCESS)
-		log_err("Apple SMC shared memory pointer conversion failed: %lx\n",
+		log_err("Apple SMC SRAM pointer conversion failed: %lx\n",
 			(ulong)ret);
 }
 
@@ -193,7 +151,7 @@ efi_status_t efi_psci_platform_init(void)
 		return ret;
 
 	apple_wdt_base = (void *)(uintptr_t)addr;
-	ret = apple_psci_smc_init();
+	ret = apple_psci_smc_setup();
 	if (ret != EFI_SUCCESS)
 		log_warning("EFI PSCI: Apple SMC shutdown unavailable: %lx\n",
 			    (ulong)ret);
@@ -201,8 +159,9 @@ efi_status_t efi_psci_platform_init(void)
 			       apple_psci_virtual_address_map, NULL, NULL, &event);
 	if (ret != EFI_SUCCESS) {
 		apple_wdt_base = NULL;
+		apple_smc_asc = NULL;
 		apple_smc_mbox = NULL;
-		apple_smc_shmem = NULL;
+		apple_smc_sram = NULL;
 	}
 	return ret;
 }
@@ -285,31 +244,171 @@ static bool __efi_runtime apple_psci_timed_out(u64 deadline)
 	return now >= deadline;
 }
 
-static unsigned long __efi_runtime apple_psci_smc_command(u32 command, u32 id)
+static bool __efi_runtime apple_psci_mbox_send(u64 message, u8 endpoint)
 {
 	void *mbox = apple_smc_mbox;
-	u64 deadline, response, endpoint;
+	u64 deadline = apple_psci_deadline(500);
 
-	if (!mbox || !apple_smc_shmem)
-		return PSCI_RET_NOT_SUPPORTED;
-
-	writel(command, apple_smc_shmem);
-	asm volatile("dsb sy" : : : "memory");
-	writeq(((u64)APPLE_SMC_MBSE << 32) | (4 << 16) | (id << 12) | 0x11,
-	       mbox + APPLE_MBOX_A2I_MSG0);
-	writeq(APPLE_SMC_ENDPOINT, mbox + APPLE_MBOX_A2I_MSG1);
-
-	deadline = apple_psci_deadline(500);
 	while (readl(mbox + APPLE_MBOX_A2I_STAT) & APPLE_MBOX_A2I_FULL) {
 		if (apple_psci_timed_out(deadline))
-			return PSCI_RET_INTERNAL_FAILURE;
+			return false;
 	}
+	writeq(message, mbox + APPLE_MBOX_A2I_MSG0);
+	writeq(endpoint, mbox + APPLE_MBOX_A2I_MSG1);
+	return true;
+}
+
+static bool __efi_runtime apple_psci_smc_buffer_valid(u64 addr, u64 size)
+{
+	return size && size <= apple_smc_sram_size &&
+	       addr >= apple_smc_sram_phys &&
+	       addr - apple_smc_sram_phys <= apple_smc_sram_size - size;
+}
+
+/* Runtime shutdown cannot use driver model or allocate RTKit buffers. */
+static bool __efi_runtime
+apple_psci_rtkit_recv(u64 *message, u8 *endpoint, u64 deadline)
+{
+	void *mbox = apple_smc_mbox;
+	u64 type, addr, size;
+
 	while (!apple_psci_timed_out(deadline)) {
 		if (readl(mbox + APPLE_MBOX_I2A_STAT) & APPLE_MBOX_I2A_EMPTY)
 			continue;
-		response = readq(mbox + APPLE_MBOX_I2A_MSG0);
-		endpoint = readq(mbox + APPLE_MBOX_I2A_MSG1);
+		*message = readq(mbox + APPLE_MBOX_I2A_MSG0);
+		*endpoint = readq(mbox + APPLE_MBOX_I2A_MSG1);
+		if (!*endpoint || *endpoint == APPLE_SMC_ENDPOINT)
+			return true;
+
+		type = FIELD_GET(APPLE_RTKIT_MGMT_TYPE, *message);
+		if (*endpoint == 4 && (type == 8 || type == 0xc)) {
+			if (!apple_psci_mbox_send(*message, *endpoint))
+				return false;
+		} else if ((*endpoint == 1 || *endpoint == 4) && type == 1) {
+			size = FIELD_GET(GENMASK_ULL(51, 44), *message) << 12;
+			addr = FIELD_GET(GENMASK_ULL(43, 0), *message);
+			if (!apple_psci_smc_buffer_valid(addr, size))
+				return false;
+		} else if (*endpoint == 8 && (*message >> 56) == 1) {
+			size = FIELD_GET(GENMASK_ULL(55, 36), *message);
+			addr = FIELD_GET(GENMASK_ULL(35, 0), *message) << 12;
+			if (!apple_psci_smc_buffer_valid(addr, size))
+				return false;
+		}
+	}
+	return false;
+}
+
+static bool __efi_runtime
+apple_psci_rtkit_wait(u8 endpoint, u64 mask, u64 expected, u64 *message)
+{
+	u64 deadline = apple_psci_deadline(1000);
+	u8 ep;
+
+	while (apple_psci_rtkit_recv(message, &ep, deadline)) {
+		if (ep == endpoint && (*message & mask) == expected)
+			return true;
+	}
+	return false;
+}
+
+static bool __efi_runtime
+apple_psci_rtkit_set_power(u8 request, u16 state)
+{
+	u8 response = request == APPLE_RTKIT_IOP_POWER ? APPLE_RTKIT_IOP_POWER_ACK : request;
+	u64 reply;
+	u64 message = FIELD_PREP(APPLE_RTKIT_MGMT_TYPE, request) | state;
+	u64 expected = FIELD_PREP(APPLE_RTKIT_MGMT_TYPE, response) | state;
+
+	return apple_psci_mbox_send(message, 0) &&
+	       apple_psci_rtkit_wait(0, APPLE_RTKIT_MGMT_TYPE | 0xffff, expected, &reply);
+}
+
+static bool __efi_runtime apple_psci_smc_start(void **shmem)
+{
+	u64 message, reply, deadline;
+	u32 min_ver, max_ver, version, endpoints = 0;
+	u8 ep;
+	int i;
+
+	writel(readl(apple_smc_asc + 0x44) | BIT(4), apple_smc_asc + 0x44);
+	message = FIELD_PREP(APPLE_RTKIT_MGMT_TYPE, APPLE_RTKIT_IOP_POWER) |
+		  APPLE_RTKIT_POWER_INIT;
+	if (!apple_psci_mbox_send(message, 0) ||
+	    !apple_psci_rtkit_wait(0, APPLE_RTKIT_MGMT_TYPE,
+				  FIELD_PREP(APPLE_RTKIT_MGMT_TYPE,
+					     APPLE_RTKIT_HELLO), &reply))
+		return false;
+
+	min_ver = reply & 0xffff;
+	max_ver = (reply >> 16) & 0xffff;
+	version = min(max_ver, 12U);
+	if (min_ver > version || version < 11)
+		return false;
+	message = FIELD_PREP(APPLE_RTKIT_MGMT_TYPE, APPLE_RTKIT_HELLO_REPLY) |
+		  (version << 16) | version;
+	if (!apple_psci_mbox_send(message, 0))
+		return false;
+
+	deadline = apple_psci_deadline(1000);
+	do {
+		if (!apple_psci_rtkit_recv(&reply, &ep, deadline) || ep ||
+		    FIELD_GET(APPLE_RTKIT_MGMT_TYPE, reply) != APPLE_RTKIT_EPMAP)
+			return false;
+		if (!FIELD_GET(APPLE_RTKIT_EPMAP_BASE, reply))
+			endpoints = reply;
+		message = FIELD_PREP(APPLE_RTKIT_MGMT_TYPE, APPLE_RTKIT_EPMAP) |
+			  (reply & APPLE_RTKIT_EPMAP_BASE);
+		message |= reply & APPLE_RTKIT_EPMAP_LAST ?
+			   APPLE_RTKIT_EPMAP_LAST : BIT(0);
+		if (!apple_psci_mbox_send(message, 0))
+			return false;
+	} while (!(reply & APPLE_RTKIT_EPMAP_LAST));
+
+	/* Leave noisy logging endpoints and unrelated applications stopped. */
+	endpoints &= BIT(1) | BIT(4) | BIT(8);
+	for (i = 0; i < 32; i++) {
+		if (!(endpoints & BIT(i)))
+			continue;
+		message = FIELD_PREP(APPLE_RTKIT_MGMT_TYPE, APPLE_RTKIT_START_EP) |
+			  ((u64)i << 32) | BIT(1);
+		if (!apple_psci_mbox_send(message, 0))
+			return false;
+	}
+	message = FIELD_PREP(APPLE_RTKIT_MGMT_TYPE, APPLE_RTKIT_IOP_POWER_ACK) |
+		  APPLE_RTKIT_PWR_STATE_ON;
+	if (!apple_psci_rtkit_wait(0, APPLE_RTKIT_MGMT_TYPE | 0xffff, message, &reply) ||
+	    !apple_psci_rtkit_set_power(APPLE_RTKIT_AP_POWER,
+				       APPLE_RTKIT_PWR_STATE_ON))
+		return false;
+
+	message = FIELD_PREP(APPLE_RTKIT_MGMT_TYPE, APPLE_RTKIT_START_EP) |
+		  ((u64)APPLE_SMC_ENDPOINT << 32) | BIT(1);
+	if (!apple_psci_mbox_send(message, 0) ||
+	    !apple_psci_mbox_send(0x17, APPLE_SMC_ENDPOINT) ||
+	    !apple_psci_rtkit_wait(APPLE_SMC_ENDPOINT, 0, 0, &reply) ||
+	    !apple_psci_smc_buffer_valid(reply, SZ_4K))
+		return false;
+	*shmem = apple_smc_sram + (reply - apple_smc_sram_phys);
+	return true;
+}
+
+static unsigned long __efi_runtime
+apple_psci_smc_command(void *shmem, u32 command, u32 id)
+{
+	u64 deadline, response;
+	u8 endpoint;
+
+	writel(command, shmem);
+	asm volatile("dsb sy" : : : "memory");
+	if (!apple_psci_mbox_send(((u64)APPLE_SMC_MBSE << 32) | (4 << 16) |
+				  (id << 12) | 0x11, APPLE_SMC_ENDPOINT))
+		return PSCI_RET_INTERNAL_FAILURE;
+
+	deadline = apple_psci_deadline(500);
+	while (apple_psci_rtkit_recv(&response, &endpoint, deadline)) {
 		if (endpoint != APPLE_SMC_ENDPOINT ||
+		    (response & 0xff) == 0x18 ||
 		    (response & 0xf000) != (id << 12))
 			continue;
 		return (response & 0xff) ? PSCI_RET_INTERNAL_FAILURE :
@@ -320,16 +419,29 @@ static unsigned long __efi_runtime apple_psci_smc_command(u32 command, u32 id)
 
 static unsigned long __efi_runtime apple_psci_poweroff(void)
 {
+	void *shmem;
 	u64 deadline;
 
-	if (apple_psci_smc_command(APPLE_SMC_OFFW, 0))
-		return PSCI_RET_INTERNAL_FAILURE;
-	if (apple_psci_smc_command(APPLE_SMC_OFF1, 1))
-		return PSCI_RET_INTERNAL_FAILURE;
+	if (!apple_smc_mbox)
+		return PSCI_RET_NOT_SUPPORTED;
+	/* Do not take ownership of the SMC until shutdown is requested. */
+	if (!apple_psci_smc_start(&shmem))
+		goto out;
+	if (apple_psci_smc_command(shmem, APPLE_SMC_OFFW, 0))
+		goto out;
+	if (apple_psci_smc_command(shmem, APPLE_SMC_OFF1, 1))
+		goto out;
 
 	deadline = apple_psci_deadline(200);
 	while (!apple_psci_timed_out(deadline))
 		asm volatile("yield");
+out:
+	/* A failed shutdown may return to a loader which boots another OS. */
+	if (!apple_psci_rtkit_set_power(APPLE_RTKIT_AP_POWER,
+					APPLE_RTKIT_PWR_STATE_QUIESCED) ||
+	    !apple_psci_rtkit_set_power(APPLE_RTKIT_IOP_POWER,
+					APPLE_RTKIT_PWR_STATE_QUIESCED))
+		return PSCI_RET_INTERNAL_FAILURE;
 	return PSCI_RET_INTERNAL_FAILURE;
 }
 
