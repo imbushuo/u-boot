@@ -203,14 +203,36 @@ static int do_acpi_dump(struct cmd_tbl *cmdtp, int flag, int argc,
 	return 0;
 }
 
+static int do_acpi_disable_psci(struct cmd_tbl *cmdtp, int flag, int argc,
+				char *const argv[])
+{
+	struct acpi_fadt *fadt = NULL;
+
+	if (gd_acpi_start())
+		fadt = (struct acpi_fadt *)acpi_find_table("FACP");
+	if (!fadt || fadt->header.length <
+	    offsetof(struct acpi_fadt, arm_boot_arch) + sizeof(fadt->arm_boot_arch)) {
+		printf("Cannot find a valid FADT with ARM boot flags\n");
+		return CMD_RET_FAILURE;
+	}
+
+	fadt->arm_boot_arch &= ~(ACPI_ARM_PSCI_COMPLIANT | ACPI_ARM_PSCI_USE_EFI);
+	acpi_update_checksum(&fadt->header);
+	printf("FADT PSCI and EFI conduit flags cleared\n");
+
+	return CMD_RET_SUCCESS;
+}
+
 U_BOOT_LONGHELP(acpi,
 	"list [-c] - list ACPI tables [check checksums]\n"
 	"acpi items [-d]   - List/dump each piece of ACPI data from devices\n"
 	"acpi set [<addr>] - Set or show address of ACPI tables\n"
-	"acpi dump <name>  - Dump ACPI table");
+	"acpi dump <name>  - Dump ACPI table\n"
+	"acpi disable-psci - Clear FADT PSCI and EFI conduit flags for debugging");
 
 U_BOOT_CMD_WITH_SUBCMDS(acpi, "ACPI tables", acpi_help_text,
 	U_BOOT_SUBCMD_MKENT(list, 2, 1, do_acpi_list),
 	U_BOOT_SUBCMD_MKENT(items, 2, 1, do_acpi_items),
 	U_BOOT_SUBCMD_MKENT(set, 2, 1, do_acpi_set),
-	U_BOOT_SUBCMD_MKENT(dump, 2, 1, do_acpi_dump));
+	U_BOOT_SUBCMD_MKENT(dump, 2, 1, do_acpi_dump),
+	U_BOOT_SUBCMD_MKENT(disable-psci, 1, 1, do_acpi_disable_psci));

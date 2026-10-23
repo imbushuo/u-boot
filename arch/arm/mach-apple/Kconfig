@@ -28,4 +28,16 @@ config SYS_MALLOC_F_LEN
 config LNX_KRNL_IMG_TEXT_OFFSET_BASE
 	default TEXT_BASE
 
+config EFI_APPLE_SYNTHETIC_TIME
+	bool "Synthetic EFI clock based on the architectural timer"
+	depends on EFI_LOADER
+	select EFI_HAVE_RUNTIME_GET_TIME
+	select LIB_DATE
+	help
+	  Provide read-only EFI GetTime before and after ExitBootServices.
+	  Time starts at 2026-10-21 00:00:00 UTC during U-Boot startup and
+	  advances using the ARM architectural counter. This is not a real
+	  RTC: the epoch resets on every boot and SetTime is unsupported.
+	  Intended for bring-up until a runtime-safe Apple RTC is available.
+
 endif

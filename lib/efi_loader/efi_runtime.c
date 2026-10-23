@@ -131,6 +131,9 @@ efi_status_t efi_init_runtime_supported(void)
 				EFI_RT_SUPPORTED_SET_VIRTUAL_ADDRESS_MAP |
 				EFI_RT_SUPPORTED_CONVERT_POINTER;
 
+	if (IS_ENABLED(CONFIG_EFI_HAVE_RUNTIME_GET_TIME))
+		rt_table->runtime_services_supported |= EFI_RT_SUPPORTED_GET_TIME;
+
 	if (IS_ENABLED(CONFIG_EFI_VARIABLE_FILE_STORE))
 		rt_table->runtime_services_supported |=
 			EFI_RT_SUPPORTED_QUERY_VARIABLE_INFO;
@@ -311,6 +314,13 @@ static efi_status_t EFIAPI efi_get_time_boottime(
 			struct efi_time *time,
 			struct efi_time_cap *capabilities)
 {
+	if (IS_ENABLED(CONFIG_EFI_HAVE_RUNTIME_GET_TIME)) {
+		efi_status_t ret;
+
+		EFI_ENTRY("%p %p", time, capabilities);
+		ret = efi_get_time(time, capabilities);
+		return EFI_EXIT(ret);
+	}
 #ifdef CONFIG_EFI_GET_TIME
 	efi_status_t ret = EFI_SUCCESS;
 	struct rtc_time tm;

@@ -35,7 +35,11 @@ static efi_status_t efi_acpi_update_psci(void)
 		return EFI_NOT_FOUND;
 	}
 
-	fadt->arm_boot_arch |= ACPI_ARM_PSCI_COMPLIANT | ACPI_ARM_PSCI_USE_EFI;
+	/* Respect a platform or debug command opting out of ACPI PSCI. */
+	if (!(fadt->arm_boot_arch & ACPI_ARM_PSCI_COMPLIANT))
+		return EFI_SUCCESS;
+
+	fadt->arm_boot_arch |= ACPI_ARM_PSCI_USE_EFI;
 	acpi_update_checksum(&fadt->header);
 
 	return EFI_SUCCESS;

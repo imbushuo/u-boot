@@ -190,6 +190,15 @@ static int execute(void)
 	if (convert_pointer_failed)
 		return EFI_ST_FAILURE;
 
+	if (IS_ENABLED(CONFIG_EFI_HAVE_RUNTIME_GET_TIME)) {
+		struct efi_time time;
+
+		if (st_runtime->get_time(&time, NULL) != EFI_SUCCESS) {
+			efi_st_error("GetTime failed after SetVirtualAddressMap\n");
+			return EFI_ST_FAILURE;
+		}
+	}
+
 	return EFI_ST_SUCCESS;
 }
 

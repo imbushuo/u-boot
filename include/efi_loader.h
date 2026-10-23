@@ -93,6 +93,7 @@ efi_status_t efi_launch_capsules(void);
 /* Without CONFIG_EFI_LOADER we don't have a runtime section, stub it out */
 #define __efi_runtime_data
 #define __efi_runtime_rodata
+#define __efi_runtime_rodata
 #define __efi_runtime
 static inline efi_status_t efi_add_runtime_mmio(void *mmio_ptr, u64 len)
 {

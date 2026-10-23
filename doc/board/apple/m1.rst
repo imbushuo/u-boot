@@ -133,6 +133,21 @@ When the EFI PSCI configuration table is installed, U-Boot marks the FADT's
 ARM boot flags with ``ACPI_ARM_PSCI_USE_EFI`` (reserved bit 2) and updates its
 checksum. This experimental conduit must not be treated as native SMC/HVC PSCI.
 
+For debugging, run ``acpi disable-psci`` at the U-Boot prompt to clear both
+the PSCI-compliant and EFI-conduit bits in the FADT. The command updates the
+checksum, and EFI handoff leaves the bits cleared. It affects the current
+table set only, not the EFI PSCI configuration table or device tree; reboot
+to restore the default flags.
+
+``CONFIG_EFI_APPLE_SYNTHETIC_TIME`` provides a read-only synthetic EFI clock,
+enabled by ``apple_m1_defconfig``. It starts at 2026-10-21 00:00:00 UTC during
+U-Boot's last-stage initialization and advances with the ARM architectural
+counter, including fractional seconds. ``GetTime`` works before and after
+ExitBootServices and SetVirtualAddressMap, without accessing the SMC.
+``SetTime`` remains unsupported. This is not a battery-backed RTC: every boot
+resets the epoch, and no real wall-clock accuracy or suspend-time continuity
+is guaranteed. Disable this option to restore unsupported EFI time services.
+
 With ``CONFIG_CMD_BOOTEFI_PSCITEST``, U-Boot embeds the EFI PSCI selftest.
 At the U-Boot prompt, run either::
 
@@ -175,3 +190,29 @@ supported SoCs.
      - 0x235200000
    * - M1 Pro/Max/Ultra (t6000/t6001/t6002) and M2 Pro/Max/Ultra (t6020/t6021/t6022)
      - 0x39b200000
+
+Watchdog and debugger stops
+--------------------------
+
+``apple_m1_defconfig`` keeps the Apple watchdog driver and reset support,
+but disables automatic watchdog startup so that debugger stops do not cause
+a hardware watchdog reset. A device tree's explicit ``u-boot,autostart``
+property can override this default.
+
+To stop a watchdog already enabled by an earlier boot stage or started
+manually, use ``wdt list`` to find its name, then select and stop it.
+For M1/M2 with the upstream device tree::
+
+    => wdt dev watchdog@23d2b0000
+    => wdt stop
+
+On older builds without ``CONFIG_CMD_WDT``, the equivalent for the M1/M2
+watchdog is ``mw.l 0x23d2b001c 0 1``. Do not use this address on other SoCs
+without checking their watchdog register base. Stopping the watchdog does
+not disable subsequent explicit system-reset requests.
+
+EFI applications also have a separate five-minute software watchdog.
+An application being debugged can disable it through the boot service
+``SetWatchdogTimer(0, 0, 0, NULL)``. It does not run while U-Boot's CPU is
+halted, but may expire when execution resumes. ``wdt stop`` does not disable
+this EFI timer; ExitBootServices disables it.

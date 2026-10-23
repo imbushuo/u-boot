@@ -3,9 +3,14 @@
  * Tests for acpi command
  */
 
+#include <acpi/acpi_table.h>
+#include <asm/global_data.h>
+#include <tables_csum.h>
 #include <linux/bitops.h>
 #include <test/cmd.h>
 #include <test/ut.h>
+
+DECLARE_GLOBAL_DATA_PTR;
 
 #define HAVE_RSDP BIT(0)
 #define HAVE_XSDT BIT(1)
@@ -50,3 +55,44 @@ static int cmd_test_acpi(struct unit_test_state *uts)
 	}
 }
 CMD_TEST(cmd_test_acpi, UTF_CONSOLE);
+
+static int cmd_test_acpi_disable_psci(struct unit_test_state *uts)
+{
+	struct acpi_fadt *fadt = (struct acpi_fadt *)acpi_find_table("FACP");
+	ulong saved_start = gd_acpi_start();
+	u16 saved_flags;
+	u32 saved_length;
+
+	ut_assertnonnull(fadt);
+	saved_flags = fadt->arm_boot_arch;
+	saved_length = fadt->header.length;
+	fadt->arm_boot_arch = BIT(15) | BIT(1) |
+		ACPI_ARM_PSCI_COMPLIANT | ACPI_ARM_PSCI_USE_EFI;
+	acpi_update_checksum(&fadt->header);
+
+	ut_assertok(run_commandf("acpi disable-psci"));
+	ut_assert_nextline("FADT PSCI and EFI conduit flags cleared");
+	ut_asserteq(BIT(15) | BIT(1), fadt->arm_boot_arch);
+	ut_asserteq(0, table_compute_checksum(fadt, fadt->header.length));
+	ut_assertok(run_commandf("acpi disable-psci"));
+	ut_assert_nextline("FADT PSCI and EFI conduit flags cleared");
+	ut_asserteq(0, table_compute_checksum(fadt, fadt->header.length));
+
+	fadt->header.length = offsetof(struct acpi_fadt, arm_boot_arch);
+	ut_asserteq(CMD_RET_FAILURE, run_commandf("acpi disable-psci"));
+	ut_assert_nextline("Cannot find a valid FADT with ARM boot flags");
+	ut_asserteq(BIT(15) | BIT(1), fadt->arm_boot_arch);
+	fadt->header.length = saved_length;
+	fadt->arm_boot_arch = saved_flags;
+	acpi_update_checksum(&fadt->header);
+
+	gd_set_acpi_start(0);
+	ut_asserteq(CMD_RET_FAILURE, run_commandf("acpi disable-psci"));
+	ut_assert_nextline("Cannot find a valid FADT with ARM boot flags");
+	gd_set_acpi_start(saved_start);
+	ut_assert_console_end();
+
+	return 0;
+}
+
+CMD_TEST(cmd_test_acpi_disable_psci, UTF_CONSOLE);

@@ -15,6 +15,7 @@ Synopsis
     acpi items [-d]
     acpi dump <name>
     acpi set <address>
+    acpi disable-psci
 
 Description
 -----------
@@ -124,6 +125,19 @@ acpi dump
 
 Dump a paticular ACPI table in binary format. This can be used to read the table
 if you have the specification handy.
+
+acpi disable-psci
+~~~~~~~~~~~~~~~~~
+
+Clear the PSCI-compliant flag (ARM boot flags bit 0) and the experimental
+EFI PSCI conduit flag (bit 2) in the current FADT, then update its checksum.
+Other ARM boot flags are preserved. The command fails if no FADT containing
+the ARM boot flags is available.
+
+This is a debugging override for the current table set only; rebooting
+restores the platform defaults. EFI handoff does not re-enable the conduit
+flag when the PSCI-compliant flag is clear. The command does not remove the
+EFI PSCI configuration table or change CPU startup methods in the device tree.
 
 
 Example
